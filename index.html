@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SVS Manager Dashboard - Aluve</title>
+  <meta name="description" content="Dashboard Manager - ringkasan performa tim sales Aluve" />
+
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Chart.js dimuat dari CDN — dashboard ini didesain untuk laptop
+       kantor dengan koneksi internet stabil, jadi tidak perlu di-self-host
+       seperti font di app Sales (yang harus tetap jalan offline di lapangan). -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <!-- SheetJS untuk fitur Export Excel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+  <div id="app">
+
+    <!-- ===================== HEADER ===================== -->
+    <header class="mgr-header">
+      <div class="mgr-header-left">
+        <img id="header-logo" class="header-logo" src="./assets/icons/logo.png" alt="Aluve" />
+        <div>
+          <h1 class="mgr-title">Manager Dashboard</h1>
+          <p id="header-subtitle" class="mgr-subtitle">-</p>
+        </div>
+      </div>
+      <div class="mgr-header-right">
+        <button id="btn-export-excel" class="secondary-button ripple" type="button">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          Export Excel
+        </button>
+        <button id="btn-print-pdf" class="secondary-button ripple" type="button">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Print PDF
+        </button>
+        <button id="btn-theme-toggle" class="theme-switch" type="button" aria-label="Ganti tema">
+          <svg class="theme-switch-icon theme-switch-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="theme-switch-icon theme-switch-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <span class="theme-switch-thumb"></span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ===================== TAB NAVIGATION ===================== -->
+    <nav class="mgr-tabs no-print">
+      <button class="mgr-tab active" type="button" data-tab="overview">Overview</button>
+      <button class="mgr-tab" type="button" data-tab="explorer">Project Explorer</button>
+      <button class="mgr-tab" type="button" data-tab="performance">Performa Sales</button>
+      <button class="mgr-tab" type="button" data-tab="log">Log Aktivitas</button>
+    </nav>
+
+    <!-- ===================== FILTER BAR ===================== -->
+    <div class="filter-bar no-print">
+      <div class="filter-field">
+        <label for="filter-date-from">Dari Tanggal</label>
+        <input id="filter-date-from" type="date" class="form-input" />
+      </div>
+      <div class="filter-field">
+        <label for="filter-date-to">Sampai Tanggal</label>
+        <input id="filter-date-to" type="date" class="form-input" />
+      </div>
+      <div class="filter-field">
+        <label for="filter-sales">Sales</label>
+        <select id="filter-sales" class="form-select">
+          <option value="">Semua Sales</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="filter-stage">Pipeline Stage</label>
+        <select id="filter-stage" class="form-select">
+          <option value="">Semua Stage</option>
+        </select>
+      </div>
+      <button id="btn-apply-filter" class="primary-button ripple" type="button">Terapkan Filter</button>
+      <button id="btn-reset-filter" class="secondary-button ripple" type="button">Reset</button>
+    </div>
+
+    <!-- ===================== MAIN CONTENT ===================== -->
+    <main id="main-content">
+
+      <!-- ---------- TAB: OVERVIEW ---------- -->
+      <section id="tab-overview" class="mgr-tab-content active">
+
+        <div id="overview-loading" class="loading-text">Memuat data</div>
+
+        <div id="overview-content" hidden>
+
+          <!-- KPI Cards -->
+          <div class="kpi-grid">
+            <div class="kpi-card glow-primary">
+              <span class="kpi-label">Total Project</span>
+              <span id="kpi-total-projects" class="kpi-value">0</span>
+            </div>
+            <div class="kpi-card glow-success">
+              <span class="kpi-label">Nilai Pipeline Aktif</span>
+              <span id="kpi-pipeline-value" class="kpi-value">Rp 0</span>
+            </div>
+            <div class="kpi-card glow-warning">
+              <span class="kpi-label">Nilai Deal Won</span>
+              <span id="kpi-won-value" class="kpi-value">Rp 0</span>
+            </div>
+            <div class="kpi-card glow-primary">
+              <span class="kpi-label">Win Rate</span>
+              <span id="kpi-win-rate" class="kpi-value">0%</span>
+            </div>
+            <div class="kpi-card glow-danger">
+              <span class="kpi-label">Total Aktivitas (Periode)</span>
+              <span id="kpi-total-activities" class="kpi-value">0</span>
+            </div>
+          </div>
+
+          <!-- Row: Funnel + Status Pie -->
+          <div class="chart-row two-col">
+            <div class="chart-card">
+              <h3 class="chart-title">Funnel Pipeline</h3>
+              <canvas id="chart-funnel"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3 class="chart-title">Status Project</h3>
+              <canvas id="chart-status-pie"></canvas>
+            </div>
+          </div>
+
+          <!-- Row: Trend chart (full width, with granularity toggle) -->
+          <div class="chart-row">
+            <div class="chart-card full-width">
+              <div class="chart-card-header">
+                <h3 class="chart-title">Tren Aktivitas</h3>
+                <div id="trend-granularity-chips" class="chip-group">
+                  <button class="chip selected" type="button" data-granularity="daily">Harian</button>
+                  <button class="chip" type="button" data-granularity="weekly">Mingguan</button>
+                  <button class="chip" type="button" data-granularity="monthly">Bulanan</button>
+                </div>
+              </div>
+              <canvas id="chart-trend"></canvas>
+            </div>
+          </div>
+
+          <!-- Row: Sales Ranking + Lost Reasons -->
+          <div class="chart-row two-col">
+            <div class="chart-card">
+              <h3 class="chart-title">Ranking Sales (Aktivitas)</h3>
+              <canvas id="chart-sales-ranking"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3 class="chart-title">Alasan Lost</h3>
+              <canvas id="chart-lost-reasons"></canvas>
+            </div>
+          </div>
+
+          <!-- Row: 3 widget lists -->
+          <div class="widget-row">
+            <div class="widget-card">
+              <h3 class="chart-title">⚠ Project Perlu Perhatian</h3>
+              <div id="widget-stale-list" class="widget-list"></div>
+            </div>
+            <div class="widget-card">
+              <h3 class="chart-title">Follow Up Hari Ini</h3>
+              <div id="widget-followup-list" class="widget-list"></div>
+            </div>
+            <div class="widget-card">
+              <h3 class="chart-title">Aktivitas Terbaru</h3>
+              <div id="widget-recent-list" class="widget-list"></div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ---------- TAB: PROJECT EXPLORER (placeholder, dibangun tahap berikutnya) ---------- -->
+      <section id="tab-explorer" class="mgr-tab-content">
+        <p class="empty-state">Halaman Project Explorer sedang dibangun — segera hadir.</p>
+      </section>
+
+      <!-- ---------- TAB: PERFORMA SALES (placeholder) ---------- -->
+      <section id="tab-performance" class="mgr-tab-content">
+        <p class="empty-state">Halaman Performa Sales sedang dibangun — segera hadir.</p>
+      </section>
+
+      <!-- ---------- TAB: LOG AKTIVITAS (placeholder) ---------- -->
+      <section id="tab-log" class="mgr-tab-content">
+        <p class="empty-state">Halaman Log Aktivitas sedang dibangun — segera hadir.</p>
+      </section>
+
+    </main>
+
+    <!-- ===================== SNACKBAR ===================== -->
+    <div id="snackbar" class="snackbar" role="status" aria-live="polite"></div>
+
+  </div>
+
+  <script src="./config.js"></script>
+  <script src="./script.js"></script>
+</body>
+</html>

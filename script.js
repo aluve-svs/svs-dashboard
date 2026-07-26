@@ -15,7 +15,10 @@ const State = {
   filters: { date_from: '', date_to: '', sales_code: '', pipeline_stage: '' },
   trendGranularity: 'daily',
   overviewData: null,
-  charts: {} // menyimpan instance Chart.js supaya bisa di-destroy sebelum render ulang
+  charts: {}, // menyimpan instance Chart.js supaya bisa di-destroy sebelum render ulang
+  logOffset: 0,
+  logLimit: 25,
+  logTotalCount: 0
 };
 
 /* ============================================================
@@ -129,6 +132,9 @@ const TabNav = {
     }
     if (tabName === 'performance' && !State.performanceLoaded) {
       PerformancePage.load();
+    }
+    if (tabName === 'log' && !State.logLoaded) {
+      LogPage.load();
     }
   }
 };
@@ -666,6 +672,91 @@ const PerformancePage = {
   }
 };
 
+/* ============================================================
+   13. HALAMAN LOG AKTIVITAS
+   ============================================================ */
+const LogPage = {
+  init() {
+    document.getElementById('btn-log-filter').addEventListener('click', () => {
+      State.logOffset = 0;
+      this.load();
+    });
+    document.getElementById('btn-log-prev').addEventListener('click', () => {
+      if (State.logOffset - State.logLimit >= 0) {
+        State.logOffset -= State.logLimit;
+        this.load();
+      }
+    });
+    document.getElementById('btn-log-next').addEventListener('click', () => {
+      if (State.logOffset + State.logLimit < State.logTotalCount) {
+        State.logOffset += State.logLimit;
+        this.load();
+      }
+    });
+  },
+
+  async load() {
+    document.getElementById('log-loading').hidden = false;
+    document.getElementById('log-table-wrap').hidden = true;
+
+    const payload = {
+      limit: State.logLimit,
+      offset: State.logOffset
+    };
+    if (State.filters.date_from) payload.date_from = State.filters.date_from;
+    if (State.filters.date_to) payload.date_to = State.filters.date_to;
+    if (State.filters.sales_code) payload.sales_code = State.filters.sales_code;
+    const activityType = document.getElementById('log-activity-type').value;
+    if (activityType) payload.activity_type = activityType;
+
+    const result = await Api.call('readActivityLog', payload);
+
+    document.getElementById('log-loading').hidden = true;
+    document.getElementById('log-table-wrap').hidden = false;
+    State.logLoaded = true;
+
+    if (!result.success) {
+      Snackbar.show(result.message || 'Gagal memuat log aktivitas', 'error');
+      return;
+    }
+
+    State.logTotalCount = result.data.total_count;
+    this.render(result.data.activities || []);
+    this.renderPagination();
+  },
+
+  render(activities) {
+    const tbody = document.getElementById('log-table-body');
+    const emptyEl = document.getElementById('log-empty');
+
+    if (activities.length === 0) {
+      tbody.innerHTML = '';
+      emptyEl.hidden = false;
+      return;
+    }
+    emptyEl.hidden = true;
+
+    tbody.innerHTML = activities.map((a) =>
+      '<tr>' +
+      '<td>' + Utils.formatShortDate(a.timestamp) + '</td>' +
+      '<td>' + a.project_name + '</td>' +
+      '<td>' + a.sales_name + '</td>' +
+      '<td>' + a.activity_type + '</td>' +
+      '<td>' + (a.note || '-') + '</td>' +
+      '<td>' + (a.pipeline_stage || '-') + '</td>' +
+      '</tr>'
+    ).join('');
+  },
+
+  renderPagination() {
+    const start = State.logTotalCount === 0 ? 0 : State.logOffset + 1;
+    const end = Math.min(State.logOffset + State.logLimit, State.logTotalCount);
+    document.getElementById('log-page-info').textContent = start + '–' + end + ' dari ' + State.logTotalCount;
+    document.getElementById('btn-log-prev').disabled = State.logOffset === 0;
+    document.getElementById('btn-log-next').disabled = (State.logOffset + State.logLimit) >= State.logTotalCount;
+  }
+};
+
 const ExportManager = {
   init() {
     document.getElementById('btn-export-excel').addEventListener('click', () => this.exportExcel());
@@ -713,6 +804,7 @@ function initApp() {
   OverviewPage.initGranularityToggle();
   ExplorerPage.init();
   DetailModal.init();
+  LogPage.init();
 
   document.getElementById('header-subtitle').textContent =
     'Halo, ' + MGR_CONFIG.MANAGER_NAME + ' — data real-time dari seluruh tim sales';

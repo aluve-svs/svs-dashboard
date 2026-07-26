@@ -220,6 +220,8 @@ h1, h2, h3, p { margin: 0; }
   transition: background var(--duration-fast) var(--easing);
 }
 .secondary-button:hover { background: var(--color-border); }
+.secondary-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.secondary-button:disabled:hover { background: var(--color-surface-alt); }
 
 .ripple { position: relative; overflow: hidden; }
 .ripple::after {
@@ -449,6 +451,12 @@ h1, h2, h3, p { margin: 0; }
   width: 40px; height: 40px; border-radius: var(--radius-full);
   background: rgba(255,255,255,0.15); color: #FFFFFF; font-size: 18px;
 }
+
+.log-pagination {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-md);
+  padding: var(--space-lg) 0;
+}
+.log-pagination span { font-size: 13px; color: var(--color-text-secondary); font-weight: 600; }
 
 /* ============================================================
    12. PRINT — layout khusus saat "Print PDF" ditekan

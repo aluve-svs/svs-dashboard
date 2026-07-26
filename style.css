@@ -342,6 +342,58 @@ h1, h2, h3, p { margin: 0; }
   .chart-row.two-col { grid-template-columns: 1fr; }
   .widget-row { grid-template-columns: 1fr; }
   .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-field { min-width: 0; width: 100%; }
+}
+
+/* ---------- HP (di bawah 640px) ---------- */
+@media (max-width: 640px) {
+  #app { padding: 0 var(--space-md) var(--space-lg); }
+
+  /* Header: jadi 2 baris, logo+judul di atas, tombol aksi turun ke bawah */
+  .mgr-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-md) 0;
+  }
+  .mgr-header-right { width: 100%; flex-wrap: wrap; }
+  .mgr-title { font-size: 18px; }
+  .header-logo { height: 32px; }
+
+  /* Tab: scroll horizontal, tidak numpuk/terpotong */
+  .mgr-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+  .mgr-tab { white-space: nowrap; padding: 10px 14px; font-size: 13px; }
+
+  .kpi-grid { grid-template-columns: 1fr 1fr; gap: var(--space-sm); }
+  .kpi-value { font-size: 20px; }
+  .chart-card { padding: var(--space-md); }
+  .chart-card canvas { max-height: 220px; }
+
+  /* Modal detail: penuhi layar, jangan sisakan margin besar */
+  .modal-overlay { padding: var(--space-sm); }
+  .modal-panel { max-height: 92vh; }
+  .modal-body { padding: var(--space-md); }
+  .photo-grid { grid-template-columns: repeat(3, 1fr); }
+
+  .explorer-toolbar { flex-direction: column; align-items: stretch; }
+  .log-pagination { flex-wrap: wrap; gap: var(--space-sm); }
+
+  /* Safari iOS otomatis zoom-in kalau font input < 16px saat fokus —
+     dinaikkan khusus di breakpoint HP supaya tidak mengganggu */
+  .form-input, .form-select { font-size: 16px; }
+}
+
+/* Tabel (Project Explorer, Performa Sales, Log Aktivitas) — dibungkus
+   scroll horizontal di HP, supaya kolom yang banyak tetap bisa diakses
+   (geser ke samping) tanpa merusak layout, bukan dipaksa muat semua. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-lg);
+}
+.table-scroll .data-table { border-radius: 0; min-width: 560px; }
+@media (max-width: 640px) {
+  .table-scroll .data-table { min-width: 640px; }
 }
 
 /* ============================================================

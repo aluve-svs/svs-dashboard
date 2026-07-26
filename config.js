@@ -21,5 +21,5 @@ const MGR_CONFIG = {
   // di sheet Sales_Master (Status harus "Aktif"), supaya backend mengenali
   // dan mengizinkan Manager Dashboard mengakses data.
   MANAGER_CODE: 'MGR-01',
-  MANAGER_TOKEN: 'aluve-0186'
+  MANAGER_TOKEN: 'aluve-0168'
 };

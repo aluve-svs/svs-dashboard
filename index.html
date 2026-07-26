@@ -186,19 +186,21 @@
         <div id="explorer-loading" class="loading-text">Memuat data</div>
 
         <div id="explorer-table-wrap" hidden>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Nama Project</th>
-                <th>Sales</th>
-                <th>Stage</th>
-                <th>Nilai</th>
-                <th>Lokasi</th>
-                <th>Update Terakhir</th>
-              </tr>
-            </thead>
-            <tbody id="explorer-table-body"></tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Nama Project</th>
+                  <th>Sales</th>
+                  <th>Stage</th>
+                  <th>Nilai</th>
+                  <th>Lokasi</th>
+                  <th>Update Terakhir</th>
+                </tr>
+              </thead>
+              <tbody id="explorer-table-body"></tbody>
+            </table>
+          </div>
           <p id="explorer-empty" class="empty-state" hidden>Tidak ada project yang cocok.</p>
         </div>
       </section>
@@ -244,20 +246,22 @@
         <div id="performance-content" hidden>
           <div class="chart-card" style="margin-bottom: var(--space-lg);">
             <h3 class="chart-title">Perbandingan Sales</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Sales</th>
-                  <th>Total Aktivitas</th>
-                  <th>Visit</th>
-                  <th>Won</th>
-                  <th>Lost</th>
-                  <th>Nilai Won</th>
-                  <th>Project Aktif</th>
-                </tr>
-              </thead>
-              <tbody id="performance-table-body"></tbody>
-            </table>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Sales</th>
+                    <th>Total Aktivitas</th>
+                    <th>Visit</th>
+                    <th>Won</th>
+                    <th>Lost</th>
+                    <th>Nilai Won</th>
+                    <th>Project Aktif</th>
+                  </tr>
+                </thead>
+                <tbody id="performance-table-body"></tbody>
+              </table>
+            </div>
           </div>
 
           <div id="performance-detail" hidden>
@@ -291,19 +295,21 @@
         <div id="log-loading" class="loading-text">Memuat data</div>
 
         <div id="log-table-wrap" hidden>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Tanggal</th>
-                <th>Project</th>
-                <th>Sales</th>
-                <th>Jenis</th>
-                <th>Catatan</th>
-                <th>Status Saat Itu</th>
-              </tr>
-            </thead>
-            <tbody id="log-table-body"></tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Tanggal</th>
+                  <th>Project</th>
+                  <th>Sales</th>
+                  <th>Jenis</th>
+                  <th>Catatan</th>
+                  <th>Status Saat Itu</th>
+                </tr>
+              </thead>
+              <tbody id="log-table-body"></tbody>
+            </table>
+          </div>
           <p id="log-empty" class="empty-state" hidden>Tidak ada aktivitas yang cocok dengan filter.</p>
 
           <div class="log-pagination no-print">

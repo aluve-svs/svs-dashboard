@@ -113,21 +113,18 @@
             </div>
           </div>
 
-          <!-- Row: Funnel + Status Pie -->
-          <div class="chart-row two-col">
-            <div class="chart-card">
+          <!-- Row: Funnel Pipeline (full width — perlu banyak ruang supaya semua
+               stage dari sheet Lookup muat, termasuk yang masih 0 project) -->
+          <div class="chart-row">
+            <div class="chart-card full-width">
               <h3 class="chart-title">Funnel Pipeline</h3>
               <canvas id="chart-funnel"></canvas>
             </div>
-            <div class="chart-card">
-              <h3 class="chart-title">Status Project</h3>
-              <canvas id="chart-status-pie"></canvas>
-            </div>
           </div>
 
-          <!-- Row: Trend chart (full width, with granularity toggle) -->
-          <div class="chart-row">
-            <div class="chart-card full-width">
+          <!-- Row: Tren Aktivitas + Status Project berdampingan -->
+          <div class="chart-row two-col">
+            <div class="chart-card">
               <div class="chart-card-header">
                 <h3 class="chart-title">Tren Aktivitas</h3>
                 <div id="trend-granularity-chips" class="chip-group">
@@ -137,6 +134,10 @@
                 </div>
               </div>
               <canvas id="chart-trend"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3 class="chart-title">Status Project</h3>
+              <canvas id="chart-status-pie"></canvas>
             </div>
           </div>
 

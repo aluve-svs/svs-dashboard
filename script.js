@@ -127,6 +127,9 @@ const TabNav = {
     if (tabName === 'explorer' && !State.explorerLoaded) {
       ExplorerPage.load();
     }
+    if (tabName === 'performance' && !State.performanceLoaded) {
+      PerformancePage.load();
+    }
   }
 };
 
@@ -554,6 +557,112 @@ const Lightbox = {
   },
   close() {
     document.getElementById('photo-lightbox').hidden = true;
+  }
+};
+
+/* ============================================================
+   12. HALAMAN PERFORMA SALES
+   ============================================================ */
+const PerformancePage = {
+  async load() {
+    document.getElementById('performance-loading').hidden = false;
+    document.getElementById('performance-content').hidden = true;
+
+    const payload = {};
+    if (State.filters.date_from) payload.date_from = State.filters.date_from;
+    if (State.filters.date_to) payload.date_to = State.filters.date_to;
+
+    const result = await Api.call('readSalesPerformance', payload);
+
+    document.getElementById('performance-loading').hidden = true;
+    document.getElementById('performance-content').hidden = false;
+    State.performanceLoaded = true;
+
+    if (!result.success) {
+      Snackbar.show(result.message || 'Gagal memuat data performa sales', 'error');
+      return;
+    }
+
+    this.render(result.data || []);
+  },
+
+  render(performance) {
+    const tbody = document.getElementById('performance-table-body');
+    if (performance.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7"><p class="empty-state">Belum ada data aktivitas.</p></td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = performance.map((p) =>
+      '<tr data-sales-code="' + p.sales_code + '" data-sales-name="' + p.sales_name + '">' +
+      '<td><strong>' + p.sales_name + '</strong></td>' +
+      '<td>' + p.total_activities + '</td>' +
+      '<td>' + p.visit_count + '</td>' +
+      '<td>' + p.won_count + '</td>' +
+      '<td>' + p.lost_count + '</td>' +
+      '<td>' + Utils.formatCurrency(p.won_value) + '</td>' +
+      '<td>' + p.active_projects_count + '</td>' +
+      '</tr>'
+    ).join('');
+
+    tbody.querySelectorAll('tr').forEach((row) => {
+      row.addEventListener('click', () => {
+        this.loadDetail(row.dataset.salesCode, row.dataset.salesName);
+      });
+    });
+  },
+
+  async loadDetail(salesCode, salesName) {
+    document.getElementById('performance-detail').hidden = false;
+    document.getElementById('performance-detail-title').textContent = 'Detail — ' + salesName;
+    document.getElementById('performance-detail-kpi').innerHTML = '<p class="loading-text">Memuat...</p>';
+
+    const overviewPayload = { sales_code: salesCode };
+    if (State.filters.date_from) overviewPayload.date_from = State.filters.date_from;
+    if (State.filters.date_to) overviewPayload.date_to = State.filters.date_to;
+
+    const [overviewResult, trendResult] = await Promise.all([
+      Api.call('readManagerOverview', overviewPayload),
+      Api.call('readTrendData', { granularity: State.trendGranularity, sales_code: salesCode })
+    ]);
+
+    if (overviewResult.success) {
+      const kpi = overviewResult.data.kpi;
+      document.getElementById('performance-detail-kpi').innerHTML =
+        '<div class="kpi-card glow-primary"><span class="kpi-label">Total Project</span><span class="kpi-value">' + kpi.total_projects + '</span></div>' +
+        '<div class="kpi-card glow-success"><span class="kpi-label">Nilai Pipeline</span><span class="kpi-value">' + Utils.formatCurrency(kpi.total_pipeline_value) + '</span></div>' +
+        '<div class="kpi-card glow-warning"><span class="kpi-label">Win Rate</span><span class="kpi-value">' + kpi.win_rate_percent + '%</span></div>' +
+        '<div class="kpi-card glow-danger"><span class="kpi-label">Total Aktivitas</span><span class="kpi-value">' + kpi.total_activities_period + '</span></div>';
+    }
+
+    if (trendResult.success) {
+      this.renderTrendChart(trendResult.data || []);
+    }
+
+    document.getElementById('performance-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  },
+
+  renderTrendChart(trend) {
+    if (State.charts.performanceTrend) { State.charts.performanceTrend.destroy(); }
+    const ctx = document.getElementById('chart-performance-trend').getContext('2d');
+    State.charts.performanceTrend = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: trend.map((t) => t.label),
+        datasets: [
+          { label: 'Visit', data: trend.map((t) => t.visit_count), borderColor: Utils.chartPalette[0], tension: 0.3 },
+          { label: 'Won', data: trend.map((t) => t.won_count), borderColor: Utils.chartPalette[1], tension: 0.3 },
+          { label: 'Lost', data: trend.map((t) => t.lost_count), borderColor: Utils.chartPalette[3], tension: 0.3 }
+        ]
+      },
+      options: {
+        plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } },
+        scales: {
+          x: { ticks: { color: Utils.chartTextColor() }, grid: { color: Utils.chartGridColor() } },
+          y: { ticks: { color: Utils.chartTextColor() }, grid: { color: Utils.chartGridColor() }, beginAtZero: true }
+        }
+      }
+    });
   }
 };
 

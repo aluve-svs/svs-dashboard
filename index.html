@@ -173,8 +173,67 @@
 
       <!-- ---------- TAB: PROJECT EXPLORER (placeholder, dibangun tahap berikutnya) ---------- -->
       <section id="tab-explorer" class="mgr-tab-content">
-        <p class="empty-state">Halaman Project Explorer sedang dibangun — segera hadir.</p>
+
+        <div class="explorer-toolbar no-print">
+          <div class="filter-field" style="min-width:280px;">
+            <label for="explorer-search">Cari Nama Project / Lokasi</label>
+            <input id="explorer-search" type="text" class="form-input" placeholder="Ketik untuk mencari..." />
+          </div>
+          <button id="btn-explorer-search" class="secondary-button ripple" type="button">Cari</button>
+        </div>
+
+        <div id="explorer-loading" class="loading-text">Memuat data</div>
+
+        <div id="explorer-table-wrap" hidden>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Nama Project</th>
+                <th>Sales</th>
+                <th>Stage</th>
+                <th>Nilai</th>
+                <th>Lokasi</th>
+                <th>Update Terakhir</th>
+              </tr>
+            </thead>
+            <tbody id="explorer-table-body"></tbody>
+          </table>
+          <p id="explorer-empty" class="empty-state" hidden>Tidak ada project yang cocok.</p>
+        </div>
       </section>
+
+      <!-- ---------- MODAL: DETAIL PROJECT ---------- -->
+      <div id="project-detail-overlay" class="modal-overlay no-print" hidden>
+        <div class="modal-panel">
+          <div class="modal-header">
+            <h3 id="detail-project-name">-</h3>
+            <button id="btn-close-detail" class="icon-btn" type="button" aria-label="Tutup">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="detail-meta-row">
+              <span id="detail-project-stage" class="detail-badge">-</span>
+              <span id="detail-project-value" class="detail-meta-text">-</span>
+              <span id="detail-project-address" class="detail-meta-text">-</span>
+            </div>
+
+            <div id="detail-contacts" class="contact-list"></div>
+
+            <h4 class="chart-title">Foto Project</h4>
+            <div id="detail-photo-grid" class="photo-grid"></div>
+
+            <h4 class="chart-title">Riwayat Aktivitas</h4>
+            <div id="detail-timeline" class="timeline"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- LIGHTBOX FOTO ---------- -->
+      <div id="photo-lightbox" class="lightbox-overlay no-print" hidden>
+        <button id="btn-close-lightbox" class="lightbox-close" type="button" aria-label="Tutup">✕</button>
+        <img id="lightbox-image" src="" alt="Foto diperbesar" />
+      </div>
 
       <!-- ---------- TAB: PERFORMA SALES (placeholder) ---------- -->
       <section id="tab-performance" class="mgr-tab-content">

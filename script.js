@@ -26,7 +26,17 @@ const State = {
    ============================================================ */
 const Api = {
   async call(action, payload) {
-    const body = Object.assign({ action }, payload || {});
+    // requester_code/requester_token: identitas Manager sendiri (dari
+    // Sales_Master), WAJIB dikirim di setiap request sejak backend
+    // menerapkan validasi di semua action (termasuk yang cuma baca data).
+    const body = Object.assign(
+      {
+        action,
+        requester_code: MGR_CONFIG.MANAGER_CODE,
+        requester_token: MGR_CONFIG.MANAGER_TOKEN
+      },
+      payload || {}
+    );
     try {
       const res = await fetch(MGR_CONFIG.API_URL, {
         method: 'POST',

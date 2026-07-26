@@ -10,7 +10,7 @@
 const MGR_CONFIG = {
   // URL Web App hasil Deploy dari Apps Script — SAMA PERSIS dengan
   // yang dipakai app Sales (backend-nya memang satu, dipakai bersama).
-  API_URL: 'https://script.google.com/macros/library/d/1PVcmFw0Rjn3Fs4Dbi8XoMRZwRVxjo3uHBHQV8N8wFAyz3d8c3bSgvDzf/11',
+  API_URL: 'https://script.google.com/macros/s/AKfycbznquzDsslQsfk-p1AxHmvwer0PL98tmn-WQdN9roQWmObLLLeGm1eNC-Cuckdmok5m1g/exec',
 
   // Nama yang tampil di header (opsional, sekadar sapaan)
   MANAGER_NAME: 'Manager'

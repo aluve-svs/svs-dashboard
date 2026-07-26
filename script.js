@@ -124,6 +124,9 @@ const TabNav = {
     if (tabName === 'overview' && !State.overviewData) {
       OverviewPage.load();
     }
+    if (tabName === 'explorer' && !State.explorerLoaded) {
+      ExplorerPage.load();
+    }
   }
 };
 
@@ -374,6 +377,186 @@ const OverviewPage = {
 /* ============================================================
    9. EXPORT
    ============================================================ */
+/* ============================================================
+   9. HALAMAN PROJECT EXPLORER
+   ============================================================ */
+const ExplorerPage = {
+  async init() {
+    document.getElementById('btn-explorer-search').addEventListener('click', () => this.load());
+    document.getElementById('explorer-search').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.load();
+    });
+  },
+
+  async load() {
+    document.getElementById('explorer-loading').hidden = false;
+    document.getElementById('explorer-table-wrap').hidden = true;
+
+    const keyword = document.getElementById('explorer-search').value.trim();
+    let result;
+
+    if (keyword) {
+      result = await Api.call('searchProject', { keyword });
+    } else {
+      const payload = {};
+      if (State.filters.date_from) payload.date_from = State.filters.date_from;
+      if (State.filters.date_to) payload.date_to = State.filters.date_to;
+      if (State.filters.sales_code) payload.sales_code = State.filters.sales_code;
+      if (State.filters.pipeline_stage) payload.pipeline_stage = State.filters.pipeline_stage;
+      result = await Api.call('filterProject', payload);
+    }
+
+    document.getElementById('explorer-loading').hidden = true;
+    document.getElementById('explorer-table-wrap').hidden = false;
+    State.explorerLoaded = true;
+
+    if (!result.success) {
+      Snackbar.show(result.message || 'Gagal memuat daftar project', 'error');
+      return;
+    }
+
+    this.render(result.data || []);
+  },
+
+  render(projects) {
+    const tbody = document.getElementById('explorer-table-body');
+    const emptyEl = document.getElementById('explorer-empty');
+
+    if (projects.length === 0) {
+      tbody.innerHTML = '';
+      emptyEl.hidden = false;
+      return;
+    }
+    emptyEl.hidden = true;
+
+    projects.sort((a, b) => new Date(b.Date_Last_Activity) - new Date(a.Date_Last_Activity));
+
+    tbody.innerHTML = projects.map((p) => {
+      const valueText = p.Estimated_Value ? Utils.formatCurrency(p.Estimated_Value) : '-';
+      return '<tr data-project-id="' + p.Project_ID + '" data-project-name="' + p.Project_Name + '" data-project-stage="' + p.Pipeline_Stage + '" data-project-value="' + valueText + '" data-project-address="' + (p.Location_Address || '-') + '">' +
+        '<td>' + p.Project_Name + '</td>' +
+        '<td>' + p.Sales_Code + '</td>' +
+        '<td>' + p.Pipeline_Stage + '</td>' +
+        '<td>' + valueText + '</td>' +
+        '<td>' + (p.Location_Address || '-') + '</td>' +
+        '<td>' + Utils.formatShortDate(p.Date_Last_Activity) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    tbody.querySelectorAll('tr').forEach((row) => {
+      row.addEventListener('click', () => {
+        DetailModal.open(
+          row.dataset.projectId,
+          row.dataset.projectName,
+          row.dataset.projectStage,
+          row.dataset.projectValue,
+          row.dataset.projectAddress
+        );
+      });
+    });
+  }
+};
+
+/* ============================================================
+   10. MODAL DETAIL PROJECT (dipakai dari Project Explorer)
+   ============================================================ */
+const DetailModal = {
+  init() {
+    document.getElementById('btn-close-detail').addEventListener('click', () => this.close());
+    document.getElementById('project-detail-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'project-detail-overlay') this.close();
+    });
+    document.getElementById('btn-close-lightbox').addEventListener('click', () => Lightbox.close());
+    document.getElementById('photo-lightbox').addEventListener('click', (e) => {
+      if (e.target.id === 'photo-lightbox') Lightbox.close();
+    });
+  },
+
+  async open(projectId, projectName, stage, valueText, address) {
+    document.getElementById('detail-project-name').textContent = projectName;
+    document.getElementById('detail-project-stage').textContent = stage;
+    document.getElementById('detail-project-value').textContent = valueText;
+    document.getElementById('detail-project-address').textContent = address;
+    document.getElementById('detail-contacts').innerHTML = '<p class="empty-state">Memuat kontak...</p>';
+    document.getElementById('detail-photo-grid').innerHTML = '';
+    document.getElementById('detail-timeline').innerHTML = '<p class="loading-text">Memuat riwayat...</p>';
+
+    document.getElementById('project-detail-overlay').hidden = false;
+
+    const [contactsResult, timelineResult] = await Promise.all([
+      Api.call('readProjectContacts', { project_id: projectId }),
+      Api.call('readActivityTimeline', { project_id: projectId })
+    ]);
+
+    this.renderContacts(contactsResult.success ? contactsResult.data : []);
+    this.renderTimelineAndPhotos(timelineResult.success ? timelineResult.data : []);
+  },
+
+  close() {
+    document.getElementById('project-detail-overlay').hidden = true;
+  },
+
+  renderContacts(contacts) {
+    const el = document.getElementById('detail-contacts');
+    if (!contacts || contacts.length === 0) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = contacts.map((c) => {
+      const digits = String(c.Phone_Number).replace(/\D/g, '');
+      const waNumber = digits.startsWith('0') ? '62' + digits.slice(1) : digits;
+      return '<div class="contact-item">' +
+        '<div class="contact-name-row">' + c.Contact_Name + ' (' + c.Role + ')</div>' +
+        '<a href="tel:' + digits + '" class="contact-link">Telpon</a>' +
+        '<a href="https://wa.me/' + waNumber + '" target="_blank" rel="noopener" class="contact-link">WhatsApp</a>' +
+        '</div>';
+    }).join('');
+  },
+
+  renderTimelineAndPhotos(activities) {
+    const timelineEl = document.getElementById('detail-timeline');
+    const photoGridEl = document.getElementById('detail-photo-grid');
+
+    if (!activities || activities.length === 0) {
+      timelineEl.innerHTML = '<p class="empty-state">Belum ada aktivitas.</p>';
+      photoGridEl.innerHTML = '';
+      return;
+    }
+
+    const allPhotos = [];
+    activities.forEach((a) => {
+      if (a.photos) a.photos.forEach((p) => allPhotos.push(p.url));
+    });
+    photoGridEl.innerHTML = allPhotos.length === 0
+      ? '<p class="empty-state">Belum ada foto.</p>'
+      : allPhotos.map((url) => '<img src="' + url + '" alt="Foto project" loading="lazy" data-full="' + url + '" />').join('');
+
+    photoGridEl.querySelectorAll('img').forEach((img) => {
+      img.addEventListener('click', () => Lightbox.open(img.dataset.full));
+    });
+
+    timelineEl.innerHTML = activities.map((a) =>
+      '<div class="timeline-item">' +
+      '<p class="timeline-date">' + Utils.formatShortDate(a.Timestamp) + ' · ' + a.Activity_Type + '</p>' +
+      '<p class="timeline-note">' + a.Activity_Note + '</p>' +
+      '</div>'
+    ).join('');
+  }
+};
+
+/* ============================================================
+   11. LIGHTBOX FOTO — klik thumbnail untuk perbesar
+   ============================================================ */
+const Lightbox = {
+  open(url) {
+    document.getElementById('lightbox-image').src = url;
+    document.getElementById('photo-lightbox').hidden = false;
+  },
+  close() {
+    document.getElementById('photo-lightbox').hidden = true;
+  }
+};
+
 const ExportManager = {
   init() {
     document.getElementById('btn-export-excel').addEventListener('click', () => this.exportExcel());
@@ -419,6 +602,8 @@ function initApp() {
   TabNav.init();
   ExportManager.init();
   OverviewPage.initGranularityToggle();
+  ExplorerPage.init();
+  DetailModal.init();
 
   document.getElementById('header-subtitle').textContent =
     'Halo, ' + MGR_CONFIG.MANAGER_NAME + ' — data real-time dari seluruh tim sales';

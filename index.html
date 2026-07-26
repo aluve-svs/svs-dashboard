@@ -237,7 +237,37 @@
 
       <!-- ---------- TAB: PERFORMA SALES (placeholder) ---------- -->
       <section id="tab-performance" class="mgr-tab-content">
-        <p class="empty-state">Halaman Performa Sales sedang dibangun — segera hadir.</p>
+
+        <div id="performance-loading" class="loading-text">Memuat data</div>
+
+        <div id="performance-content" hidden>
+          <div class="chart-card" style="margin-bottom: var(--space-lg);">
+            <h3 class="chart-title">Perbandingan Sales</h3>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Sales</th>
+                  <th>Total Aktivitas</th>
+                  <th>Visit</th>
+                  <th>Won</th>
+                  <th>Lost</th>
+                  <th>Nilai Won</th>
+                  <th>Project Aktif</th>
+                </tr>
+              </thead>
+              <tbody id="performance-table-body"></tbody>
+            </table>
+          </div>
+
+          <div id="performance-detail" hidden>
+            <h3 class="chart-title" id="performance-detail-title">Detail Sales</h3>
+            <div class="kpi-grid" id="performance-detail-kpi" style="grid-template-columns: repeat(4, 1fr);"></div>
+            <div class="chart-card full-width">
+              <h3 class="chart-title">Tren Aktivitas Pribadi</h3>
+              <canvas id="chart-performance-trend"></canvas>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ---------- TAB: LOG AKTIVITAS (placeholder) ---------- -->

@@ -168,8 +168,10 @@ const FilterBar = {
   async loadSalesOptions() {
     const result = await Api.call('readSalesList', {});
     const select = document.getElementById('filter-sales');
+    State.salesNameByCode = {};
     if (result.success && result.data) {
       result.data.forEach((s) => {
+        State.salesNameByCode[s.sales_code] = s.sales_name;
         const opt = document.createElement('option');
         opt.value = s.sales_code;
         opt.textContent = s.sales_name;
@@ -178,11 +180,18 @@ const FilterBar = {
     }
   },
 
-  loadStageOptions() {
-    // Pakai daftar tetap yang sudah dikenal sistem (Won/Lost/New Visit wajib
-    // ada) — bukan dari sheet Lookup, karena filter Manager ini murni untuk
-    // MENYARING data yang sudah ada, bukan menentukan pilihan input baru.
-    const stages = ['New Visit', 'Qualified', 'Quotation Sent', 'Negotiation', 'Won', 'Lost'];
+  /**
+   * Diambil dari sheet Lookup yang SAMA dipakai app Sales (action
+   * readLookupOptions) — supaya kalau Anda tambah/ubah pipeline stage
+   * lewat Google Sheets, filter di sini otomatis ikut ter-update tanpa
+   * perlu edit kode. Daftar ini juga dipakai ulang oleh grafik Funnel
+   * Pipeline supaya SEMUA stage tampil walau belum ada datanya (0).
+   */
+  async loadStageOptions() {
+    const result = await Api.call('readLookupOptions', {});
+    const stages = (result.success && result.data && result.data.Pipeline_Stage) || [];
+    State.lookupStages = stages;
+
     const select = document.getElementById('filter-stage');
     stages.forEach((s) => {
       const opt = document.createElement('option');
@@ -281,13 +290,23 @@ const OverviewPage = {
 
   renderFunnelChart(funnel) {
     this.destroyChart('funnel');
-    const stages = ['New Visit', 'Qualified', 'Quotation Sent', 'Negotiation', 'Won', 'Lost'];
-    const labels = stages.filter((s) => funnel[s]);
-    const values = labels.map((s) => funnel[s]);
-    // Tampilkan juga stage tambahan dari sheet Lookup yang tidak ada di daftar baku
+
+    // Pakai daftar stage dari sheet Lookup (State.lookupStages) sebagai
+    // dasar — supaya SEMUA stage tampil di funnel walau belum ada satu
+    // project pun di stage itu (nilainya 0), bukan cuma stage yang
+    // kebetulan sudah punya data.
+    const baseStages = (State.lookupStages && State.lookupStages.length > 0)
+      ? State.lookupStages.slice()
+      : ['New Visit', 'Qualified', 'Quotation Sent', 'Negotiation', 'Won', 'Lost'];
+
+    // Tambahkan juga stage yang ADA di data tapi entah kenapa tidak ada
+    // di daftar Lookup (jaga-jaga data lama/tidak sinkron)
     Object.keys(funnel).forEach((s) => {
-      if (!stages.includes(s)) { labels.push(s); values.push(funnel[s]); }
+      if (!baseStages.includes(s)) baseStages.push(s);
     });
+
+    const labels = baseStages;
+    const values = baseStages.map((s) => funnel[s] || 0);
 
     const ctx = document.getElementById('chart-funnel').getContext('2d');
     State.charts.funnel = new Chart(ctx, {
@@ -297,7 +316,7 @@ const OverviewPage = {
         indexAxis: 'y',
         plugins: { legend: { display: false } },
         scales: {
-          x: { ticks: { color: Utils.chartTextColor() }, grid: { color: Utils.chartGridColor() } },
+          x: { ticks: { color: Utils.chartTextColor(), stepSize: 1 }, grid: { color: Utils.chartGridColor() } },
           y: { ticks: { color: Utils.chartTextColor() }, grid: { display: false } }
         }
       }
@@ -442,9 +461,10 @@ const ExplorerPage = {
 
     tbody.innerHTML = projects.map((p) => {
       const valueText = p.Estimated_Value ? Utils.formatCurrency(p.Estimated_Value) : '-';
+      const salesName = (State.salesNameByCode && State.salesNameByCode[p.Sales_Code]) || p.Sales_Code;
       return '<tr data-project-id="' + p.Project_ID + '" data-project-name="' + p.Project_Name + '" data-project-stage="' + p.Pipeline_Stage + '" data-project-value="' + valueText + '" data-project-address="' + (p.Location_Address || '-') + '">' +
         '<td>' + p.Project_Name + '</td>' +
-        '<td>' + p.Sales_Code + '</td>' +
+        '<td>' + salesName + '</td>' +
         '<td>' + p.Pipeline_Stage + '</td>' +
         '<td>' + valueText + '</td>' +
         '<td>' + (p.Location_Address || '-') + '</td>' +

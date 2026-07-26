@@ -41,6 +41,31 @@ const Api = {
 };
 
 /* ============================================================
+   2b. LOADING INDICATOR — animasi titik pada teks loading
+   ("Memuat data" -> "Memuat data." -> ".." -> "...")
+   ============================================================ */
+const LoadingIndicator = {
+  intervals: {},
+  start(elId) {
+    const el = document.querySelector('#' + elId + ' .loading-container-text');
+    if (!el) return;
+    const base = el.dataset.baseText || el.textContent;
+    let dots = 0;
+    this.stop(elId);
+    this.intervals[elId] = setInterval(() => {
+      dots = (dots + 1) % 4;
+      el.textContent = base + '.'.repeat(dots);
+    }, 400);
+  },
+  stop(elId) {
+    if (this.intervals[elId]) {
+      clearInterval(this.intervals[elId]);
+      delete this.intervals[elId];
+    }
+  }
+};
+
+/* ============================================================
    3. SNACKBAR
    ============================================================ */
 const Snackbar = {
@@ -208,6 +233,7 @@ const FilterBar = {
 const OverviewPage = {
   async load() {
     document.getElementById('overview-loading').hidden = false;
+    LoadingIndicator.start('overview-loading');
     document.getElementById('overview-content').hidden = true;
 
     const payload = {};
@@ -219,6 +245,7 @@ const OverviewPage = {
     const result = await Api.call('readManagerOverview', payload);
 
     document.getElementById('overview-loading').hidden = true;
+    LoadingIndicator.stop('overview-loading');
 
     if (!result.success) {
       Snackbar.show(result.message || 'Gagal memuat data overview', 'error');
@@ -418,6 +445,7 @@ const ExplorerPage = {
 
   async load() {
     document.getElementById('explorer-loading').hidden = false;
+    LoadingIndicator.start('explorer-loading');
     document.getElementById('explorer-table-wrap').hidden = true;
 
     const keyword = document.getElementById('explorer-search').value.trim();
@@ -435,6 +463,7 @@ const ExplorerPage = {
     }
 
     document.getElementById('explorer-loading').hidden = true;
+    LoadingIndicator.stop('explorer-loading');
     document.getElementById('explorer-table-wrap').hidden = false;
     State.explorerLoaded = true;
 
@@ -592,6 +621,7 @@ const Lightbox = {
 const PerformancePage = {
   async load() {
     document.getElementById('performance-loading').hidden = false;
+    LoadingIndicator.start('performance-loading');
     document.getElementById('performance-content').hidden = true;
 
     const payload = {};
@@ -601,6 +631,7 @@ const PerformancePage = {
     const result = await Api.call('readSalesPerformance', payload);
 
     document.getElementById('performance-loading').hidden = true;
+    LoadingIndicator.stop('performance-loading');
     document.getElementById('performance-content').hidden = false;
     State.performanceLoaded = true;
 
@@ -717,6 +748,7 @@ const LogPage = {
 
   async load() {
     document.getElementById('log-loading').hidden = false;
+    LoadingIndicator.start('log-loading');
     document.getElementById('log-table-wrap').hidden = true;
 
     const payload = {
@@ -732,6 +764,7 @@ const LogPage = {
     const result = await Api.call('readActivityLog', payload);
 
     document.getElementById('log-loading').hidden = true;
+    LoadingIndicator.stop('log-loading');
     document.getElementById('log-table-wrap').hidden = false;
     State.logLoaded = true;
 

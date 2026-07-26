@@ -272,7 +272,45 @@
 
       <!-- ---------- TAB: LOG AKTIVITAS (placeholder) ---------- -->
       <section id="tab-log" class="mgr-tab-content">
-        <p class="empty-state">Halaman Log Aktivitas sedang dibangun — segera hadir.</p>
+
+        <div class="explorer-toolbar no-print">
+          <div class="filter-field">
+            <label for="log-activity-type">Jenis Aktivitas</label>
+            <select id="log-activity-type" class="form-select">
+              <option value="">Semua Jenis</option>
+              <option value="Visit">Visit</option>
+              <option value="Follow Up">Follow Up</option>
+              <option value="Kirim Penawaran">Kirim Penawaran</option>
+              <option value="Deal Update">Deal Update</option>
+            </select>
+          </div>
+          <button id="btn-log-filter" class="secondary-button ripple" type="button">Terapkan</button>
+        </div>
+
+        <div id="log-loading" class="loading-text">Memuat data</div>
+
+        <div id="log-table-wrap" hidden>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tanggal</th>
+                <th>Project</th>
+                <th>Sales</th>
+                <th>Jenis</th>
+                <th>Catatan</th>
+                <th>Status Saat Itu</th>
+              </tr>
+            </thead>
+            <tbody id="log-table-body"></tbody>
+          </table>
+          <p id="log-empty" class="empty-state" hidden>Tidak ada aktivitas yang cocok dengan filter.</p>
+
+          <div class="log-pagination no-print">
+            <button id="btn-log-prev" class="secondary-button ripple" type="button">← Sebelumnya</button>
+            <span id="log-page-info">-</span>
+            <button id="btn-log-next" class="secondary-button ripple" type="button">Berikutnya →</button>
+          </div>
+        </div>
       </section>
 
     </main>

@@ -12,7 +12,7 @@
    ============================================================ */
 const State = {
   currentTab: 'overview',
-  filters: { date_from: '', date_to: '', sales_code: '', pipeline_stage: '' },
+  filters: { date_from: '', date_to: '', sales_code: '', pipeline_stage: '', lead_source: '', product_type: '' },
   trendGranularity: 'daily',
   overviewData: null,
   charts: {}, // menyimpan instance Chart.js supaya bisa di-destroy sebelum render ulang
@@ -187,6 +187,8 @@ const FilterBar = {
       State.filters.date_to = document.getElementById('filter-date-to').value;
       State.filters.sales_code = document.getElementById('filter-sales').value;
       State.filters.pipeline_stage = document.getElementById('filter-stage').value;
+      State.filters.lead_source = document.getElementById('filter-lead-source').value;
+      State.filters.product_type = document.getElementById('filter-product').value;
       OverviewPage.load();
     });
 
@@ -195,7 +197,9 @@ const FilterBar = {
       document.getElementById('filter-date-to').value = '';
       document.getElementById('filter-sales').value = '';
       document.getElementById('filter-stage').value = '';
-      State.filters = { date_from: '', date_to: '', sales_code: '', pipeline_stage: '' };
+      document.getElementById('filter-lead-source').value = '';
+      document.getElementById('filter-product').value = '';
+      State.filters = { date_from: '', date_to: '', sales_code: '', pipeline_stage: '', lead_source: '', product_type: '' };
       OverviewPage.load();
     });
   },
@@ -245,6 +249,25 @@ const FilterBar = {
       opt.textContent = s;
       leadSourceSelect.appendChild(opt);
     });
+
+    // Filter GLOBAL Sumber Leads & Jenis Produk (dipakai Halaman Overview)
+    // — sumber datanya sama, dari 1 fetch readLookupOptions ini juga.
+    const globalLeadSourceSelect = document.getElementById('filter-lead-source');
+    leadSources.forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      globalLeadSourceSelect.appendChild(opt);
+    });
+
+    const productTypes = (result.success && result.data && result.data.Product_Type) || [];
+    const globalProductSelect = document.getElementById('filter-product');
+    productTypes.forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      globalProductSelect.appendChild(opt);
+    });
   }
 };
 
@@ -262,6 +285,8 @@ const OverviewPage = {
     if (State.filters.date_to) payload.date_to = State.filters.date_to;
     if (State.filters.sales_code) payload.sales_code = State.filters.sales_code;
     if (State.filters.pipeline_stage) payload.pipeline_stage = State.filters.pipeline_stage;
+    if (State.filters.lead_source) payload.lead_source = State.filters.lead_source;
+    if (State.filters.product_type) payload.product_type = State.filters.product_type;
 
     const result = await Api.call('readManagerOverview', payload);
 

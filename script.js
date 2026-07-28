@@ -179,8 +179,9 @@ const TabNav = {
    ============================================================ */
 const FilterBar = {
   async init() {
-    await this.loadSalesOptions();
-    await this.loadStageOptions();
+    // Dijalankan BERSAMAAN (bukan tunggu satu-satu) — 2 permintaan ini
+    // tidak saling bergantung, jadi tidak ada alasan menunggu berurutan.
+    await Promise.all([this.loadSalesOptions(), this.loadStageOptions()]);
 
     document.getElementById('btn-apply-filter').addEventListener('click', () => {
       State.filters.date_from = document.getElementById('filter-date-from').value;
@@ -288,7 +289,17 @@ const OverviewPage = {
     if (State.filters.lead_source) payload.lead_source = State.filters.lead_source;
     if (State.filters.product_type) payload.product_type = State.filters.product_type;
 
-    const result = await Api.call('readManagerOverview', payload);
+    const trendPayload = { granularity: State.trendGranularity };
+    if (State.filters.sales_code) trendPayload.sales_code = State.filters.sales_code;
+
+    // readManagerOverview & readTrendData tidak saling bergantung — jalankan
+    // BERSAMAAN, bukan tunggu satu-satu, supaya total waktu tunggu = yang
+    // paling lambat dari keduanya, bukan jumlah keduanya.
+    const [result, trendResult] = await Promise.all([
+      Api.call('readManagerOverview', payload),
+      Api.call('readTrendData', trendPayload)
+    ]);
+    State.trendData = (trendResult.success && trendResult.data) ? trendResult.data : [];
 
     document.getElementById('overview-loading').hidden = true;
     LoadingIndicator.stop('overview-loading');
@@ -303,7 +314,6 @@ const OverviewPage = {
 
     this.renderKpi(result.data.kpi);
     this.renderWidgets(result.data);
-    await this.loadTrend();
     this.renderAllCharts();
   },
 

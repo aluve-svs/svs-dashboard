@@ -234,6 +234,17 @@ const FilterBar = {
       opt.textContent = s;
       select.appendChild(opt);
     });
+
+    // Sekalian isi dropdown filter Sumber Leads di halaman Explorer,
+    // dari data Lookup yang sama (tidak perlu request terpisah lagi).
+    const leadSources = (result.success && result.data && result.data.Lead_Source) || [];
+    const leadSourceSelect = document.getElementById('explorer-lead-source');
+    leadSources.forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      leadSourceSelect.appendChild(opt);
+    });
   }
 };
 
@@ -319,6 +330,8 @@ const OverviewPage = {
     this.renderTrendChart(State.trendData || []);
     this.renderSalesRankingChart(State.overviewData.sales_ranking);
     this.renderLostReasonsPie(State.overviewData.lost_reasons);
+    this.renderLeadSourcePie(State.overviewData.lead_source_breakdown || {});
+    this.renderProductTypePie(State.overviewData.product_breakdown || {});
   },
 
   destroyChart(key) {
@@ -426,6 +439,28 @@ const OverviewPage = {
     });
   },
 
+  renderLeadSourcePie(sources) {
+    this.destroyChart('leadSource');
+    const ctx = document.getElementById('chart-lead-source').getContext('2d');
+    const labels = Object.keys(sources);
+    State.charts.leadSource = new Chart(ctx, {
+      type: 'pie',
+      data: { labels, datasets: [{ data: labels.map((l) => sources[l]), backgroundColor: Utils.chartPalette }] },
+      options: { plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } } }
+    });
+  },
+
+  renderProductTypePie(products) {
+    this.destroyChart('productType');
+    const ctx = document.getElementById('chart-product-type').getContext('2d');
+    const labels = Object.keys(products);
+    State.charts.productType = new Chart(ctx, {
+      type: 'pie',
+      data: { labels, datasets: [{ data: labels.map((l) => products[l]), backgroundColor: Utils.chartPalette }] },
+      options: { plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } } }
+    });
+  },
+
   initGranularityToggle() {
     document.getElementById('trend-granularity-chips').addEventListener('click', async (e) => {
       const chip = e.target.closest('.chip');
@@ -459,16 +494,20 @@ const ExplorerPage = {
     document.getElementById('explorer-table-wrap').hidden = true;
 
     const keyword = document.getElementById('explorer-search').value.trim();
+    const leadSource = document.getElementById('explorer-lead-source').value;
     let result;
 
     if (keyword) {
-      result = await Api.call('searchProject', { keyword });
+      const searchPayload = { keyword };
+      if (leadSource) searchPayload.lead_source = leadSource;
+      result = await Api.call('searchProject', searchPayload);
     } else {
       const payload = {};
       if (State.filters.date_from) payload.date_from = State.filters.date_from;
       if (State.filters.date_to) payload.date_to = State.filters.date_to;
       if (State.filters.sales_code) payload.sales_code = State.filters.sales_code;
       if (State.filters.pipeline_stage) payload.pipeline_stage = State.filters.pipeline_stage;
+      if (leadSource) payload.lead_source = leadSource;
       result = await Api.call('filterProject', payload);
     }
 
@@ -501,10 +540,12 @@ const ExplorerPage = {
     tbody.innerHTML = projects.map((p) => {
       const valueText = p.Estimated_Value ? Utils.formatCurrency(p.Estimated_Value) : '-';
       const salesName = (State.salesNameByCode && State.salesNameByCode[p.Sales_Code]) || p.Sales_Code;
-      return '<tr data-project-id="' + p.Project_ID + '" data-project-name="' + p.Project_Name + '" data-project-stage="' + p.Pipeline_Stage + '" data-project-value="' + valueText + '" data-project-address="' + (p.Location_Address || '-') + '">' +
+      const leadSource = p.Lead_Source || '-';
+      return '<tr data-project-id="' + p.Project_ID + '" data-project-name="' + p.Project_Name + '" data-project-stage="' + p.Pipeline_Stage + '" data-project-value="' + valueText + '" data-project-address="' + (p.Location_Address || '-') + '" data-project-lead-source="' + leadSource + '">' +
         '<td>' + p.Project_Name + '</td>' +
         '<td>' + salesName + '</td>' +
         '<td>' + p.Pipeline_Stage + '</td>' +
+        '<td>' + leadSource + '</td>' +
         '<td>' + valueText + '</td>' +
         '<td>' + (p.Location_Address || '-') + '</td>' +
         '<td>' + Utils.formatShortDate(p.Date_Last_Activity) + '</td>' +
@@ -518,7 +559,8 @@ const ExplorerPage = {
           row.dataset.projectName,
           row.dataset.projectStage,
           row.dataset.projectValue,
-          row.dataset.projectAddress
+          row.dataset.projectAddress,
+          row.dataset.projectLeadSource
         );
       });
     });
@@ -540,11 +582,13 @@ const DetailModal = {
     });
   },
 
-  async open(projectId, projectName, stage, valueText, address) {
+  async open(projectId, projectName, stage, valueText, address, leadSource) {
     document.getElementById('detail-project-name').textContent = projectName;
     document.getElementById('detail-project-stage').textContent = stage;
     document.getElementById('detail-project-value').textContent = valueText;
     document.getElementById('detail-project-address').textContent = address;
+    document.getElementById('detail-project-lead-source').textContent =
+      (leadSource && leadSource !== '-') ? 'Sumber: ' + leadSource : '';
     document.getElementById('detail-contacts').innerHTML = '<p class="empty-state">Memuat kontak...</p>';
     document.getElementById('detail-photo-grid').innerHTML = '';
     document.getElementById('detail-timeline').innerHTML = '<p class="loading-text">Memuat riwayat...</p>';

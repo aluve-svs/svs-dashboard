@@ -123,6 +123,41 @@ const ThemeToggle = {
 /* ============================================================
    5. UTILS
    ============================================================ */
+/* ============================================================
+   5b. OVERVIEW CACHE — simpan hasil Overview (tanpa filter aktif) di
+   localStorage supaya kunjungan BERIKUTNYA langsung tampil instan dari
+   data lama, sambil diam-diam ambil data terbaru di belakang layar.
+   Tersimpan permanen di PC ini sampai cache browser dihapus manual —
+   TIDAK hilang kalau tab/browser ditutup.
+   Sengaja HANYA dipakai untuk tampilan default (tanpa filter aktif) —
+   supaya tidak perlu simpan cache terpisah untuk tiap kombinasi filter.
+   ============================================================ */
+const OverviewCache = {
+  STORAGE_KEY: 'mgr_overview_cache_v1',
+
+  save(overviewData, trendData) {
+    try {
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+        overviewData, trendData, savedAt: Date.now()
+      }));
+    } catch (e) { /* localStorage penuh/diblokir — abaikan, tidak fatal */ }
+  },
+
+  get() {
+    try {
+      const raw = localStorage.getItem(this.STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  formatSavedAt(timestamp) {
+    const d = new Date(timestamp);
+    return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  }
+};
+
 const Utils = {
   formatCurrency(value) {
     return 'Rp ' + Number(value || 0).toLocaleString('id-ID');
@@ -277,9 +312,33 @@ const FilterBar = {
    ============================================================ */
 const OverviewPage = {
   async load() {
-    document.getElementById('overview-loading').hidden = false;
-    LoadingIndicator.start('overview-loading');
-    document.getElementById('overview-content').hidden = true;
+    // Cache lokal HANYA dipakai kalau tidak ada filter aktif (tampilan
+    // default) — supaya tidak perlu simpan cache terpisah per kombinasi
+    // filter yang mungkin dicoba Manager.
+    const isDefaultFilter = !State.filters.date_from && !State.filters.date_to &&
+      !State.filters.sales_code && !State.filters.pipeline_stage &&
+      !State.filters.lead_source && !State.filters.product_type;
+
+    const cached = isDefaultFilter ? OverviewCache.get() : null;
+    const updatedAtEl = document.getElementById('overview-updated-at');
+
+    if (cached) {
+      // Tampilkan data lama SEKARANG JUGA — tanpa spinner, instan —
+      // sambil diam-diam ambil data terbaru di belakang layar.
+      document.getElementById('overview-loading').hidden = true;
+      document.getElementById('overview-content').hidden = false;
+      State.overviewData = cached.overviewData;
+      State.trendData = cached.trendData;
+      this.renderKpi(cached.overviewData.kpi);
+      this.renderWidgets(cached.overviewData);
+      this.renderAllCharts();
+      updatedAtEl.textContent = 'Data per ' + OverviewCache.formatSavedAt(cached.savedAt) + ' — memperbarui...';
+    } else {
+      document.getElementById('overview-loading').hidden = false;
+      LoadingIndicator.start('overview-loading');
+      document.getElementById('overview-content').hidden = true;
+      updatedAtEl.textContent = '';
+    }
 
     const payload = {};
     if (State.filters.date_from) payload.date_from = State.filters.date_from;
@@ -299,22 +358,38 @@ const OverviewPage = {
       Api.call('readManagerOverview', payload),
       Api.call('readTrendData', trendPayload)
     ]);
-    State.trendData = (trendResult.success && trendResult.data) ? trendResult.data : [];
+    const trendData = (trendResult.success && trendResult.data) ? trendResult.data : [];
 
-    document.getElementById('overview-loading').hidden = true;
-    LoadingIndicator.stop('overview-loading');
+    if (!cached) {
+      document.getElementById('overview-loading').hidden = true;
+      LoadingIndicator.stop('overview-loading');
+    }
 
     if (!result.success) {
-      Snackbar.show(result.message || 'Gagal memuat data overview', 'error');
+      if (cached) {
+        // Tampilan lama (dari cache) tetap dibiarkan — cuma kasih tahu
+        // pembaruan gagal, jangan hapus data yang sudah terlihat.
+        updatedAtEl.textContent = 'Data per ' + OverviewCache.formatSavedAt(cached.savedAt) + ' — gagal memperbarui, cek koneksi';
+      } else {
+        Snackbar.show(result.message || 'Gagal memuat data overview', 'error');
+      }
       return;
     }
 
     State.overviewData = result.data;
+    State.trendData = trendData;
     document.getElementById('overview-content').hidden = false;
 
     this.renderKpi(result.data.kpi);
     this.renderWidgets(result.data);
     this.renderAllCharts();
+
+    if (isDefaultFilter) {
+      OverviewCache.save(result.data, trendData);
+      updatedAtEl.textContent = 'Data per ' + OverviewCache.formatSavedAt(Date.now());
+    } else {
+      updatedAtEl.textContent = '';
+    }
   },
 
   renderKpi(kpi) {

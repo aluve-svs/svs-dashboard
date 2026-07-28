@@ -1,958 +1,676 @@
 /**
  * ============================================================
- * SCRIPT.JS — Sales Visit System (Frontend Logic)
+ * SCRIPT.JS — SVS Manager Dashboard
  * ============================================================
- * File ini murni JavaScript — TIDAK ADA HTML dicampur di sini.
- * Seluruh interaksi dipasang lewat addEventListener, bukan
- * atribut onclick di HTML, supaya struktur (index.html) dan
- * perilaku (script.js) tetap terpisah.
- *
- * Daftar bagian (modular per fungsi, dalam satu file sesuai
- * struktur yang diminta):
- *   1. STATE          — penyimpanan data sementara di memori
- *   2. UTILS          — fungsi bantu umum
- *   3. OFFLINE QUEUE  — antrian data saat tidak ada sinyal
- *   4. API            — komunikasi ke Google Apps Script
- *   5. SNACKBAR       — notifikasi singkat
- *   6. DARK MODE      — toggle tema
- *   7. RENDER: DASHBOARD
- *   8. RENDER: PROJECT LIST
- *   9. RENDER: TIMELINE
- *  10. SHEET: TAMBAH PROJECT
- *  11. SHEET: UPDATE PROGRESS
- *  12. SHEET: FILTER
- *  13. NAVIGASI / ROUTER
- *  14. INIT
- * ============================================================
- */
+ * Halaman yang sudah aktif: OVERVIEW.
+ * 3 halaman lain (Project Explorer, Performa Sales, Log Aktivitas)
+ * masih placeholder — dibangun di tahap berikutnya.
+ * ============================================================ */
 
 /* ============================================================
    1. STATE
    ============================================================ */
 const State = {
-  currentView: 'dashboard',
-  currentProjectId: null,   // project yang sedang dibuka di Timeline / Update Progress
-  currentProjectName: '',
-  currentProjectStage: 'New Visit',
-
-  selectedProductTypes: [],   // untuk form Tambah Project
-  selectedActivityType: null, // untuk form Update Progress
-  selectedLostReason: null,
-  selectedFollowupDate: null,
-  pendingPhotos: [],         // array of { base64, mimeType, previewUrl } — foto opsional, boleh lebih dari 1
-
-  quickFilter: 'Semua',
-  filterStage: '',
-  filterProduct: '',
-  searchKeyword: '',
-
-  summaryData: { today: {}, week: {}, month: {} },
-  selectedSummaryPeriod: 'today',
-
-  projectsCache: [],
-  contactsSummary: {}
+  currentTab: 'overview',
+  filters: { date_from: '', date_to: '', sales_code: '', pipeline_stage: '', lead_source: '', product_type: '' },
+  trendGranularity: 'daily',
+  overviewData: null,
+  charts: {}, // menyimpan instance Chart.js supaya bisa di-destroy sebelum render ulang
+  logOffset: 0,
+  logLimit: 25,
+  logTotalCount: 0
 };
 
 /* ============================================================
-   2b. ID GENERATOR (client-side)
-   ============================================================
-   Membuat ID di HP SEBELUM request dikirim ke server, dengan format
-   yang sama seperti backend (PRJ-/ACT-/PHT-). Tujuannya supaya:
-   1. Aplikasi bisa langsung lanjut ke langkah berikutnya tanpa menunggu
-      balasan server (ID sudah pasti sejak awal).
-   2. Kalau request perlu dikirim ulang (retry/sync setelah offline),
-      ID yang dipakai TETAP SAMA — sehingga backend yang sudah idempotent
-      bisa mendeteksi "ini permintaan yang sama" dan tidak membuat data
-      dobel walau dikirim berkali-kali.
-   ============================================================ */
-const IdGen = {
-  randomSuffix() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let s = '';
-    for (let i = 0; i < 4; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
-    return s;
-  },
-  formatDate(d) {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return '' + yyyy + mm + dd;
-  },
-  formatDateTime(d) {
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mi = String(d.getMinutes()).padStart(2, '0');
-    const ss = String(d.getSeconds()).padStart(2, '0');
-    return this.formatDate(d) + hh + mi + ss;
-  },
-  projectId() { return 'PRJ-' + this.formatDate(new Date()) + '-' + this.randomSuffix(); },
-  activityId() { return 'ACT-' + this.formatDateTime(new Date()) + '-' + this.randomSuffix(); },
-  photoId() { return 'PHT-' + this.formatDateTime(new Date()) + '-' + this.randomSuffix(); },
-  contactId() { return 'CNT-' + this.formatDate(new Date()) + '-' + this.randomSuffix(); }
-};
-
-/* ============================================================
-   1b. ICONS (SVG kecil untuk konten yang di-render JS — supaya
-   konsisten dengan chrome utama, bukan emoji yang beda-beda per HP)
-   ============================================================ */
-const Icons = {
-  pin: '<svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
-  tag: '<svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',
-  folder: '<svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
-  user: '<svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-  phone: '<svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
-  message: '<svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
-  arrowRight: '<svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
-  calendar: '<svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
-};
-
-/* ============================================================
-   1c. LOOKUP CACHE — daftar pilihan (status pipeline, jenis aktivitas,
-   jenis produk, alasan lost, role kontak) diambil dari sheet "Lookup"
-   di backend, supaya menambah/mengurangi pilihan cukup edit Google
-   Sheets, TANPA perlu ubah kode aplikasi.
-
-   Strategi offline-aman:
-   1. Simpan hasil terakhir yang berhasil dimuat ke localStorage —
-      kunjungan berikutnya langsung pakai itu (instan, tidak nunggu
-      server), sambil diam-diam cek versi terbaru di background.
-   2. Kalau belum pernah berhasil sama sekali (device baru / sinyal
-      pertama kali buka jelek), pakai DEFAULTS di bawah supaya
-      aplikasi tetap bisa dipakai, tidak pernah kosong total.
-   ============================================================ */
-const LookupCache = {
-  STORAGE_KEY: 'svs_lookup_options',
-
-  DEFAULTS: {
-    Activity_Type: ['Visit', 'Follow Up', 'Kirim Penawaran', 'Deal Update'],
-    Pipeline_Stage: ['New Visit', 'Qualified', 'Quotation Sent', 'Negotiation', 'Won', 'Lost'],
-    Product_Type: ['Kusen Aluminium', 'Pintu Aluminium', 'Jendela Aluminium', 'Curtain Wall', 'Railing', 'ACP', 'Facade'],
-    Lost_Reason: ['Kalah Harga', 'Kalah Kompetitor', 'Proyek Batal', 'Spek Tidak Cocok'],
-    Contact_Role: ['Owner', 'Developer', 'Kontraktor', 'Konsultan', 'Arsitek', 'Mandor', 'Project Manager', 'Purchasing'],
-    Lead_Source: ['Canvasing', 'Google Ads', 'Meta Ads', 'Website', 'Social Media', 'Event']
-  },
-
-  get() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(this.STORAGE_KEY));
-      return saved || this.DEFAULTS;
-    } catch (e) {
-      return this.DEFAULTS;
-    }
-  },
-
-  save(data) {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
-  },
-
-  /** Ambil versi terbaru dari server (dipanggil di background saat app dibuka) */
-  async refresh() {
-    const result = await Api.call('readLookupOptions', {}, { noQueue: true }).catch(() => null);
-    if (result && result.success && result.data) {
-      this.save(result.data);
-      return result.data;
-    }
-    return null;
-  }
-};
-
-/* ============================================================
-   1d. LOOKUP RENDERER — menggambar ulang 5 pemilih (chip/dropdown)
-   berdasarkan data dari LookupCache. Dipanggil sekali saat app dibuka
-   (pakai data cache/default, instan) dan sekali lagi kalau refresh()
-   di background berhasil dapat data lebih baru.
-   ============================================================ */
-const LookupRenderer = {
-  renderAll(data) {
-    this.renderActivityTypeSelect(data.Activity_Type || []);
-    this.renderPipelineStageSelect(data.Pipeline_Stage || []);
-    this.renderProductTypeChips(data.Product_Type || []);
-    this.renderLostReasonChips(data.Lost_Reason || []);
-    this.renderContactRoleSelect(data.Contact_Role || []);
-    this.renderLeadSourceSelect(data.Lead_Source || []);
-    this.renderFilterStageChips(data.Pipeline_Stage || []);
-    this.renderFilterProductChips(data.Product_Type || []);
-  },
-
-  /**
-   * Jenis Aktivitas sekarang jadi dropdown scroll biasa (bukan grid ikon) —
-   * supaya menambah jenis aktivitas baru lewat sheet Lookup langsung
-   * muncul rapi tanpa perlu saya siapkan ikon baru tiap kali.
-   */
-  renderActivityTypeSelect(types) {
-    const select = document.getElementById('select-activity-type');
-    const currentValue = select.value;
-    select.innerHTML = '<option value="">Pilih Jenis Aktivitas</option>' +
-      types.map((t) => '<option value="' + t + '">' + t + '</option>').join('');
-    if (types.includes(currentValue)) select.value = currentValue;
-
-    // Dropdown yang sama juga dipakai di form Tambah Project — default
-    // ke "Visit" kalau ada, karena kunjungan pertama ke project baru
-    // hampir selalu jenisnya Visit.
-    const selectNew = document.getElementById('select-activity-type-new');
-    if (selectNew) {
-      selectNew.innerHTML = types.map((t) => '<option value="' + t + '">' + t + '</option>').join('');
-      if (types.includes('Visit')) selectNew.value = 'Visit';
-    }
-  },
-
-  renderPipelineStageSelect(stages) {
-    const select = document.getElementById('select-pipeline-stage');
-    const currentValue = select.value;
-    select.innerHTML = stages.map((s) => '<option value="' + s + '">' + s + '</option>').join('');
-    if (stages.includes(currentValue)) select.value = currentValue;
-  },
-
-  renderProductTypeChips(products) {
-    const container = document.getElementById('product-type-chips');
-    container.innerHTML = products.map((p) => {
-      const selectedClass = State.selectedProductTypes.includes(p) ? ' selected' : '';
-      return '<button class="chip' + selectedClass + '" type="button" data-product="' + p + '">' + p + '</button>';
-    }).join('');
-  },
-
-  renderLostReasonChips(reasons) {
-    const container = document.getElementById('lost-reason-chips');
-    container.innerHTML = reasons.map((r) => {
-      const selectedClass = r === State.selectedLostReason ? ' selected' : '';
-      return '<button class="chip' + selectedClass + '" type="button" data-lost-reason="' + r + '">' + r + '</button>';
-    }).join('');
-  },
-
-  renderContactRoleSelect(roles) {
-    const select = document.getElementById('select-contact-role');
-    const currentValue = select.value;
-    select.innerHTML = '<option value="">Role Kontak (opsional)</option>' +
-      roles.map((r) => '<option value="' + r + '">' + r + '</option>').join('');
-    if (roles.includes(currentValue)) select.value = currentValue;
-
-    // Dropdown role kontak versi "susulan" di Catat Aktivitas — sumbernya sama
-    const selectUpdate = document.getElementById('select-contact-role-update');
-    if (selectUpdate) {
-      selectUpdate.innerHTML = '<option value="">Role Kontak (opsional)</option>' +
-        roles.map((r) => '<option value="' + r + '">' + r + '</option>').join('');
-    }
-  },
-
-  /**
-   * Sumber Leads — dropdown scroll opsional, sumbernya dari kolom
-   * "Lead_Source" di sheet Lookup (tambah kolom itu kalau belum ada).
-   */
-  renderLeadSourceSelect(sources) {
-    const select = document.getElementById('select-lead-source');
-    const currentValue = select.value;
-    select.innerHTML = '<option value="">Sumber Leads (opsional)</option>' +
-      sources.map((s) => '<option value="' + s + '">' + s + '</option>').join('');
-    if (sources.includes(currentValue)) select.value = currentValue;
-  },
-
-  renderFilterStageChips(stages) {
-    const container = document.getElementById('filter-stage-chips');
-    const extra = stages.map((s) => '<button class="chip" type="button" data-filter-stage="' + s + '">' + s + '</button>').join('');
-    // Chip "Semua" (statis, di HTML) selalu dipertahankan sebagai elemen pertama
-    const semuaChip = container.querySelector('[data-filter-stage=""]');
-    container.innerHTML = '';
-    if (semuaChip) container.appendChild(semuaChip);
-    container.insertAdjacentHTML('beforeend', extra);
-  },
-
-  renderFilterProductChips(products) {
-    const container = document.getElementById('filter-product-chips');
-    const extra = products.map((p) => '<button class="chip" type="button" data-filter-product="' + p + '">' + p + '</button>').join('');
-    const semuaChip = container.querySelector('[data-filter-product=""]');
-    container.innerHTML = '';
-    if (semuaChip) container.appendChild(semuaChip);
-    container.insertAdjacentHTML('beforeend', extra);
-  }
-};
-
-/* ============================================================
-   2. UTILS
-   ============================================================ */
-const Utils = {
-  /** Format objek Date/string tanggal menjadi "DD Mon" (contoh: 23 Jul) */
-  formatShortDate(dateValue) {
-    if (!dateValue) return '-';
-    const d = new Date(dateValue);
-    if (isNaN(d.getTime())) return '-';
-    const bulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    return d.getDate() + ' ' + bulan[d.getMonth()];
-  },
-
-  /** Format Date menjadi YYYY-MM-DD untuk dikirim ke backend / input[type=date] */
-  formatDateForInput(date) {
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    return yyyy + '-' + mm + '-' + dd;
-  },
-
-  /** Menentukan class dot warna berdasarkan Health_Status / Pipeline_Stage */
-  healthDotClass(project) {
-    if (project.Pipeline_Stage === 'Won') return 'dot-won';
-    if (project.Pipeline_Stage === 'Lost') return 'dot-lost';
-    if (project.Health_Status === 'Perlu Perhatian') return 'dot-perhatian';
-    if (project.Health_Status === 'Stale') return 'dot-stale';
-    return 'dot-aktif';
-  },
-
-  /** Label status ringkas untuk ditampilkan di judul kartu, contoh: "Coba lagi (Aktif)" */
-  statusLabel(pipelineStage) {
-    if (pipelineStage === 'Won') return 'Won';
-    if (pipelineStage === 'Lost') return 'Lost';
-    return 'Aktif';
-  },
-
-  /** Class glow border sesuai status — dipakai di kartu project & ringkasan */
-  statusGlowClass(pipelineStage) {
-    if (pipelineStage === 'Won') return 'glow-warning';
-    if (pipelineStage === 'Lost') return 'glow-danger';
-    return 'glow-success';
-  },
-
-  /** Membaca file foto menjadi base64 (tanpa prefix data:...) + kompresi sederhana via canvas */
-  compressAndReadImage(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error('Gagal membaca file foto'));
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onerror = () => reject(new Error('Gagal memuat gambar'));
-        img.onload = () => {
-          const maxDim = SVS_CONFIG.PHOTO_MAX_DIMENSION;
-          let { width, height } = img;
-          if (width > height && width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
-
-          const dataUrl = canvas.toDataURL('image/jpeg', SVS_CONFIG.PHOTO_QUALITY);
-          const base64 = dataUrl.split(',')[1];
-          resolve({ base64, mimeType: 'image/jpeg', previewUrl: dataUrl });
-        };
-        img.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-};
-
-/* ============================================================
-   3. OFFLINE QUEUE
-   ============================================================
-   Menyimpan aksi yang GAGAL terkirim (network error) ke
-   localStorage, lalu mengirim ulang otomatis saat koneksi
-   kembali ada. Ini adalah jaring pengaman untuk sinyal terputus
-   sesaat di lokasi proyek — bukan mode kerja offline penuh.
-   ============================================================ */
-const OfflineQueue = {
-  STORAGE_KEY: 'svs_offline_queue',
-
-  getAll() {
-    try {
-      return JSON.parse(localStorage.getItem(this.STORAGE_KEY)) || [];
-    } catch (e) {
-      return [];
-    }
-  },
-
-  saveAll(queue) {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(queue));
-    this.updateBanner();
-  },
-
-  /** Menambah item tunggal (1 action + payload biasa, misal createProject) */
-  add(action, payload) {
-    const queue = this.getAll();
-    queue.push({ type: 'single', action, payload, queuedAt: Date.now() });
-    this.saveAll(queue);
-  },
-
-  /**
-   * Menambah item GABUNGAN: 1 aktivitas beserta banyak foto mentahnya
-   * (belum diupload). Dipakai saat submit Update Progress gagal terkirim
-   * karena sinyal lemah — supaya foto & aktivitas selalu tersinkron
-   * bersamaan saat sync nanti, tidak ada foto yang "nyasar" tanpa aktivitas.
-   *
-   * @param {Object} activityPayload - payload createActivity (activity_id
-   *   & photo_ids sudah ditentukan di client sebelum dipanggil)
-   * @param {Array<{photoId,base64,mimeType}>} rawPhotos - foto mentah yang
-   *   belum diupload, tiap foto sudah punya photoId masing-masing
-   */
-  addActivityWithPhotos(activityPayload, rawPhotos) {
-    const queue = this.getAll();
-    queue.push({
-      type: 'activityWithPhotos',
-      activityPayload,
-      rawPhotos,
-      queuedAt: Date.now()
-    });
-    this.saveAll(queue);
-  },
-
-  count() {
-    return this.getAll().length;
-  },
-
-  /** Menampilkan/menyembunyikan banner jumlah data yang masih tertunda */
-  updateBanner() {
-    const banner = document.getElementById('pending-sync-banner');
-    if (!banner) return;
-
-    if (this.isSyncing) {
-      banner.innerHTML = '<span class="snackbar-spinner"></span>Menyinkronkan data...';
-      banner.disabled = true;
-      banner.hidden = false;
-      return;
-    }
-
-    banner.disabled = false;
-    const total = this.count();
-    if (total > 0) {
-      banner.innerHTML = '📤 <span id="pending-sync-count">' + total + '</span> data menunggu dikirim — Tap untuk sync sekarang';
-      banner.hidden = false;
-    } else {
-      banner.hidden = true;
-    }
-  },
-
-  /**
-   * Mengirim ulang seluruh antrian secara berurutan (bukan paralel).
-   * Menangani 2 jenis item: 'single' (langsung rawCall) dan
-   * 'activityWithPhotos' (upload foto dulu satu-satu, baru createActivity).
-   *
-   * Dilindungi dengan penguncian (isSyncing) — kalau fungsi ini dipanggil
-   * lagi SAAT proses sebelumnya masih berjalan (misal tombol "Sync Sekarang"
-   * ditekan berkali-kali, atau auto-sync dan manual-sync kebetulan
-   * bersamaan), panggilan kedua langsung diabaikan. Tanpa penguncian ini,
-   * kedua proses akan membaca antrian yang sama sebelum salah satu selesai
-   * menghapusnya, menyebabkan data yang sama terkirim dua kali.
-   */
-  isSyncing: false,
-
-  async syncAll() {
-    if (this.isSyncing) return;
-    this.isSyncing = true;
-    this.updateBanner(); // tampilkan spinner + "Menyinkronkan..." di banner
-
-    try {
-      const queue = this.getAll();
-      if (queue.length === 0) return;
-
-      let successCount = 0;
-      const remaining = [];
-
-    for (const item of queue) {
-      try {
-        if (item.type === 'activityWithPhotos') {
-          // photo_id dan activity_id SUDAH ditentukan sejak awal (saat
-          // pertama kali disimpan ke antrian) — dikirim apa adanya di sini
-          // supaya backend yang idempotent bisa mengenali kalau sebagian
-          // sudah pernah berhasil terkirim sebelumnya (tidak dobel).
-          for (const photo of item.rawPhotos) {
-            await Api.rawCall('uploadPhoto', {
-              photo_id: photo.photoId,
-              project_id: item.activityPayload.project_id,
-              file_base64: photo.base64,
-              mime_type: photo.mimeType
-            });
-          }
-          await Api.rawCall('createActivity', item.activityPayload);
-        } else {
-          await Api.rawCall(item.action, item.payload);
-        }
-        successCount++;
-      } catch (err) {
-        remaining.push(item); // gagal lagi -> tetap simpan untuk percobaan berikutnya
-      }
-    }
-
-      this.saveAll(remaining);
-
-      if (successCount > 0) {
-        Snackbar.show(successCount + ' data tertunda berhasil disinkronkan', 'success');
-        Router.refreshCurrentView();
-      }
-    } finally {
-      this.isSyncing = false;
-      this.updateBanner(); // kembalikan tampilan banner ke normal (hitung ulang / sembunyikan)
-    }
-  }
-};
-
-/* ============================================================
-   4. API
+   2. API
    ============================================================ */
 const Api = {
-  /**
-   * Batas waktu tunggu jaringan sebelum dianggap gagal dan dialihkan ke
-   * penyimpanan lokal. Dibuat cukup longgar (15 detik) karena Google Apps
-   * Script kadang butuh beberapa detik untuk "bangun" (cold start) setelah
-   * idle — bukan karena sinyal buruk. Timeout terlalu ketat (misal 8 detik)
-   * berisiko menganggap request yang sebenarnya masih berjalan normal
-   * sebagai gagal, sehingga data disimpan lokal padahal sebenarnya bisa
-   * berhasil kalau ditunggu sedikit lebih lama.
-   */
-  TIMEOUT_MS: 15000,
-
-  /**
-   * Panggilan API mentah (tanpa penanganan offline) — dipakai
-   * juga oleh OfflineQueue.syncAll() saat mengirim ulang data.
-   *
-   * Catatan teknis: Content-Type sengaja "text/plain" (bukan
-   * application/json) untuk menghindari CORS preflight request
-   * (OPTIONS) yang tidak ditangani oleh Google Apps Script secara
-   * default. Apps Script tetap mem-parsing body ini sebagai JSON
-   * di sisi server (lihat Code.gs -> JSON.parse(e.postData.contents)).
-   *
-   * Dibatasi waktu tunggu (TIMEOUT_MS) lewat AbortController — kalau
-   * server tidak merespons dalam batas waktu itu, request dibatalkan
-   * dan dianggap gagal (supaya pemanggil bisa langsung fallback ke
-   * penyimpanan lokal, bukan menunggu tanpa batas).
-   */
-  rawCall(action, payload) {
-    // requester_code/requester_token: identitas PEMANGGIL request ini,
-    // dipakai backend untuk validasi akses di SEMUA action (termasuk yang
-    // sifatnya baca data) — terpisah dari sales_code yang di beberapa
-    // action juga berfungsi sebagai FILTER data, bukan cuma identitas.
+  async call(action, payload) {
+    // requester_code/requester_token: identitas Manager sendiri (dari
+    // Sales_Master), WAJIB dikirim di setiap request sejak backend
+    // menerapkan validasi di semua action (termasuk yang cuma baca data).
     const body = Object.assign(
       {
         action,
-        sales_code: SVS_CONFIG.SALES_CODE,
-        token: SVS_CONFIG.TOKEN,
-        requester_code: SVS_CONFIG.SALES_CODE,
-        requester_token: SVS_CONFIG.TOKEN
+        requester_code: MGR_CONFIG.MANAGER_CODE,
+        requester_token: MGR_CONFIG.MANAGER_TOKEN
       },
-      payload
+      payload || {}
     );
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
-
-    return fetch(SVS_CONFIG.API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    })
-      .then((res) => res.json())
-      .finally(() => clearTimeout(timeoutId));
-  },
-
-  /**
-   * Panggilan API dengan penanganan offline otomatis.
-   * Jika request gagal karena tidak ada koneksi, dan action termasuk
-   * jenis yang boleh diantre (mengubah data), data disimpan ke
-   * OfflineQueue dan dianggap "berhasil secara lokal".
-   */
-  async call(action, payload, options) {
-    const queueableActions = ['createProject', 'createActivity', 'uploadPhoto', 'createContact', 'updateProject'];
-    const opts = options || {};
-
     try {
-      const result = await this.rawCall(action, payload);
-      return result;
-    } catch (networkError) {
-      if (queueableActions.includes(action) && !opts.noQueue) {
-        OfflineQueue.add(action, payload);
-        return { success: true, queued: true, data: null, message: 'Tersimpan lokal, akan dikirim otomatis saat online' };
-      }
-      throw networkError;
+      const res = await fetch(MGR_CONFIG.API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(body)
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: 'Gagal terhubung ke server. Cek koneksi internet.' };
     }
   }
 };
 
 /* ============================================================
-   5. SNACKBAR
+   2b. LOADING INDICATOR — animasi titik pada teks loading
+   ("Memuat data" -> "Memuat data." -> ".." -> "...")
+   ============================================================ */
+const LoadingIndicator = {
+  intervals: {},
+  start(elId) {
+    const el = document.querySelector('#' + elId + ' .loading-container-text');
+    if (!el) return;
+    const base = el.dataset.baseText || el.textContent;
+    let dots = 0;
+    this.stop(elId);
+    this.intervals[elId] = setInterval(() => {
+      dots = (dots + 1) % 4;
+      el.textContent = base + '.'.repeat(dots);
+    }, 400);
+  },
+  stop(elId) {
+    if (this.intervals[elId]) {
+      clearInterval(this.intervals[elId]);
+      delete this.intervals[elId];
+    }
+  }
+};
+
+/* ============================================================
+   3. SNACKBAR
    ============================================================ */
 const Snackbar = {
   el: null,
   timer: null,
-
-  init() {
-    this.el = document.getElementById('snackbar');
-  },
-
-  /**
-   * Menampilkan snackbar yang otomatis hilang setelah `duration` (default 2.5 detik).
-   * Dipakai untuk pesan hasil akhir (sukses/gagal).
-   */
-  /**
-   * Menampilkan snackbar yang otomatis hilang setelah `duration` (default 2.5 detik).
-   * @param {string} message
-   * @param {string} [type] - 'success' | 'error' | 'info' (default 'info')
-   * @param {number} [duration]
-   */
-  show(message, type, duration) {
+  init() { this.el = document.getElementById('snackbar'); },
+  show(message, type) {
     if (!this.el) return;
     this.el.textContent = message;
     this.el.className = 'snackbar show snackbar-' + (type || 'info');
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.el.classList.remove('show');
-    }, duration || 2500);
-  },
-
-  /**
-   * Menampilkan snackbar dengan ikon loading berputar, yang TIDAK otomatis
-   * hilang — tetap tampil sampai dipanggil show()/showPersistent() lain
-   * (biasanya dengan pesan hasil akhir).
-   */
-  showPersistent(message) {
-    if (!this.el) return;
-    clearTimeout(this.timer);
-    this.el.className = 'snackbar show snackbar-info';
-    this.el.innerHTML = '<span class="snackbar-spinner"></span>' + message;
+    this.timer = setTimeout(() => this.el.classList.remove('show'), 3000);
   }
 };
 
 /* ============================================================
-   5b. LOADING INDICATOR (teks dengan titik animasi, misal "Memuat...")
-   ============================================================ */
-const LoadingIndicator = {
-  intervalId: null,
-
-  /** Mulai animasi titik pada sebuah elemen, contoh hasil: "Memuat", "Memuat.", "Memuat..", "Memuat..." */
-  start(el, baseText) {
-    if (!el) return;
-    this.stop();
-    let dots = 0;
-    el.textContent = baseText;
-    this.intervalId = setInterval(() => {
-      dots = (dots + 1) % 4;
-      el.textContent = baseText + '.'.repeat(dots);
-    }, 400);
-  },
-
-  stop() {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
-  }
-};
-
-/* ============================================================
-   6. DARK MODE
+   4. THEME TOGGLE
    ============================================================ */
 const ThemeToggle = {
-  STORAGE_KEY: 'svs_theme',
-
+  STORAGE_KEY: 'mgr_theme',
   init() {
     const saved = localStorage.getItem(this.STORAGE_KEY);
-    if (saved) {
-      document.documentElement.setAttribute('data-theme', saved);
-    }
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
     this.updateIcon();
-
-    document.getElementById('btn-theme-toggle').addEventListener('click', () => {
-      this.toggle();
-    });
+    document.getElementById('btn-theme-toggle').addEventListener('click', () => this.toggle());
   },
-
   toggle() {
-    const isDark = this.isDark();
-    const next = isDark ? 'light' : 'dark';
+    const next = this.isDark() ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem(this.STORAGE_KEY, next);
     this.updateIcon();
+    // Grafik Chart.js perlu digambar ulang supaya warna teks/grid ikut tema baru
+    OverviewPage.renderAllCharts();
   },
-
   isDark() {
     const attr = document.documentElement.getAttribute('data-theme');
     if (attr) return attr === 'dark';
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   },
-
   updateIcon() {
-    const isDark = this.isDark();
-    document.getElementById('btn-theme-toggle').classList.toggle('is-dark', isDark);
+    document.getElementById('btn-theme-toggle').classList.toggle('is-dark', this.isDark());
   }
 };
 
 /* ============================================================
-   7. RENDER: DASHBOARD
+   5. UTILS
    ============================================================ */
-const DashboardView = {
-  async load() {
-    const followupEl = document.getElementById('followup-list');
-    followupEl.innerHTML = '<div class="loading-container"><div class="loading-spinner"></div><p class="loading-container-text">Memuat data</p></div>';
-    LoadingIndicator.start(followupEl.querySelector('.loading-container-text'), 'Memuat data');
-
-    const payload = SVS_CONFIG.ROLE === 'manager' ? {} : { sales_code: SVS_CONFIG.SALES_CODE };
-    const result = await Api.call('readDashboard', payload, { noQueue: true }).catch(() => null);
-
-    LoadingIndicator.stop();
-
-    if (!result || !result.success) {
-      Snackbar.show('Gagal memuat dashboard. Menampilkan data terakhir yang tersimpan.', 'error');
-      followupEl.innerHTML = '<p class="empty-state">Gagal memuat data. Coba refresh halaman.</p>';
-      return;
-    }
-
-    this.renderFollowUps(result.data.needs_followup || []);
-    State.summaryData = result.data.summary || { today: {}, week: {}, month: {} };
-    this.renderSummary(State.selectedSummaryPeriod);
-    this.updateNotificationBadge(result.data.needs_followup || []);
-  },
-
-  init() {
-    document.querySelectorAll('#summary-period-chips .chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('#summary-period-chips .chip').forEach((c) => c.classList.remove('selected'));
-        chip.classList.add('selected');
-        State.selectedSummaryPeriod = chip.dataset.period;
-        this.renderSummary(State.selectedSummaryPeriod);
-      });
-    });
-
-    // Klik salah satu angka ringkasan (Kunjungan/Deal Ditutup/Deal Hilang)
-    // untuk melihat rincian nama project yang menyusun angka itu.
-    document.querySelectorAll('.summary-item').forEach((item) => {
-      item.addEventListener('click', () => {
-        this.openSummaryDetail(item.dataset.summaryType);
-      });
-    });
-  },
-
-  async openSummaryDetail(type) {
-    const titles = { visit: 'Kunjungan', won: 'Deal Ditutup', lost: 'Deal Hilang' };
-    const periodLabels = { today: 'Hari Ini', week: 'Minggu Ini', month: 'Bulan Ini' };
-    const period = State.selectedSummaryPeriod;
-
-    document.getElementById('summary-detail-title').textContent =
-      titles[type] + ' — ' + periodLabels[period];
-
-    const listEl = document.getElementById('summary-detail-list');
-    listEl.innerHTML = '<p class="loading-text">Memuat data</p>';
-    LoadingIndicator.start(listEl.querySelector('.loading-text'), 'Memuat data');
-
-    SheetManager.open('sheet-summary-detail');
-
-    const payload = { period, type };
-    if (SVS_CONFIG.ROLE !== 'manager') payload.sales_code = SVS_CONFIG.SALES_CODE;
-
-    const result = await Api.call('readSummaryDetail', payload, { noQueue: true }).catch(() => null);
-    LoadingIndicator.stop();
-
-    if (!result || !result.success || !result.data || result.data.length === 0) {
-      listEl.innerHTML = '<p class="empty-state">Belum ada data untuk periode ini.</p>';
-      return;
-    }
-
-    listEl.innerHTML = result.data.map((item) => {
-      return '<div class="card">' +
-        '<p class="card-title">' + item.project_name + '</p>' +
-        '<p class="card-sub-light">' + Utils.formatShortDate(item.timestamp) + '</p>' +
-        '</div>';
-    }).join('');
-  },
-
-  renderFollowUps(items) {
-    const container = document.getElementById('followup-list');
-    const emptyEl = document.getElementById('followup-empty');
-    container.innerHTML = '';
-
-    if (items.length === 0) {
-      emptyEl.hidden = false;
-      return;
-    }
-    emptyEl.hidden = true;
-
-    items.forEach((item) => {
-      const urgency = item.overdue_days > 0 ? 'overdue' : 'today';
-      const label = item.overdue_days > 0
-        ? 'Terlewat ' + item.overdue_days + ' hari 🔴'
-        : 'Jatuh tempo hari ini';
-
-      const card = document.createElement('div');
-      card.className = 'card followup-card ' + urgency;
-      card.innerHTML =
-        '<h3 class="card-title">' + Icons.folder + ' ' + item.project_name + '</h3>' +
-        '<p class="card-sub">' + label + '</p>' +
-        '<div class="followup-card-action" data-open-activity="' + item.project_id + '" data-project-name="' + item.project_name + '">' +
-        'Catat Aktivitas ' + Icons.arrowRight + '</div>';
-      container.appendChild(card);
-    });
-
-    // Pasang event listener untuk setiap tombol "Catat Aktivitas" yang baru dibuat
-    container.querySelectorAll('[data-open-activity]').forEach((el) => {
-      el.addEventListener('click', () => {
-        UpdateProgressSheet.open(el.dataset.openActivity, el.dataset.projectName, null);
-      });
-    });
-  },
-
-  renderSummary(period) {
-    const summary = State.summaryData[period] || {};
-    document.getElementById('summary-visit').textContent = summary.visit_count || 0;
-    document.getElementById('summary-won').textContent = summary.won_count || 0;
-    document.getElementById('summary-lost').textContent = summary.lost_count || 0;
-  },
-
-  updateNotificationBadge(items) {
-    const badge = document.getElementById('badge-notification-count');
-    if (items.length > 0) {
-      badge.textContent = items.length > 9 ? '9+' : String(items.length);
-      badge.hidden = false;
-    } else {
-      badge.hidden = true;
-    }
-  }
-};
-
 /* ============================================================
-   8. RENDER: PROJECT LIST
+   5b. OVERVIEW CACHE — simpan hasil Overview (tanpa filter aktif) di
+   localStorage supaya kunjungan BERIKUTNYA langsung tampil instan dari
+   data lama, sambil diam-diam ambil data terbaru di belakang layar.
+   Tersimpan permanen di PC ini sampai cache browser dihapus manual —
+   TIDAK hilang kalau tab/browser ditutup.
+   Sengaja HANYA dipakai untuk tampilan default (tanpa filter aktif) —
+   supaya tidak perlu simpan cache terpisah untuk tiap kombinasi filter.
    ============================================================ */
-const ProjectListView = {
-  async load() {
-    const listEl = document.getElementById('project-list');
-    listEl.innerHTML = '<div class="loading-container"><div class="loading-spinner"></div><p class="loading-container-text">Memuat project</p></div>';
-    LoadingIndicator.start(listEl.querySelector('.loading-container-text'), 'Memuat project');
+const OverviewCache = {
+  STORAGE_KEY: 'mgr_overview_cache_v1',
 
-    const payload = {
-      sales_code: SVS_CONFIG.ROLE === 'manager' ? undefined : SVS_CONFIG.SALES_CODE,
-      pipeline_stage: State.filterStage || undefined,
-      product_type: State.filterProduct || undefined
-    };
-
-    const result = await Api.call('filterProject', payload, { noQueue: true }).catch(() => null);
-    LoadingIndicator.stop();
-
-    if (!result || !result.success) {
-      Snackbar.show('Gagal memuat daftar project', 'error');
-      listEl.innerHTML = '<p class="empty-state">Gagal memuat data. Coba refresh halaman.</p>';
-      return;
-    }
-
-    // Ambil ringkasan kontak (nama+role) untuk semua project sekaligus,
-    // supaya kartu bisa tampilkan siapa kontak di lokasi tanpa 1 request
-    // terpisah per project. Kalau gagal, tidak fatal — kartu cukup tanpa
-    // info kontak.
-    const contactsResult = await Api.call('readContactsSummary', {}, { noQueue: true }).catch(() => null);
-    State.contactsSummary = (contactsResult && contactsResult.success) ? contactsResult.data : {};
-
-    const serverProjects = result.data || [];
-    const serverIds = new Set(serverProjects.map((p) => p.Project_ID));
-
-    // Sertakan juga project yang MASIH tertunda di antrian offline (belum
-    // berhasil terkirim ke server) — supaya tetap terlihat di list walau
-    // aplikasi baru dibuka lagi/di-refresh, bukan cuma selama sesi berjalan.
-    // Project yang Project_ID-nya sudah muncul di data server (berarti sudah
-    // berhasil sync) TIDAK diikutkan lagi di sini, supaya tidak dobel tampil.
-    const pendingFromQueue = OfflineQueue.getAll()
-      .filter((item) => item.type === 'single' && item.action === 'createProject')
-      .map((item) => item.payload)
-      .filter((p) => !serverIds.has(p.project_id))
-      .map((p) => ({
-        Project_ID: p.project_id,
-        Project_Name: p.project_name,
-        Location_Address: p.location_address,
-        Product_Type: p.product_type,
-        Pipeline_Stage: 'New Visit',
-        Estimated_Value: '',
-        Health_Status: 'Aktif',
-        Date_Created: new Date().toISOString(),
-        Date_Last_Activity: new Date().toISOString(),
-        _pendingSync: true
+  save(overviewData, trendData) {
+    try {
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+        overviewData, trendData, savedAt: Date.now()
       }));
-
-    // Urutkan berdasarkan AKTIVITAS TERAKHIR (bukan tanggal dibuat) —
-    // project yang baru saja di-update/follow up tampil paling atas,
-    // supaya sales langsung lihat project yang paling relevan sekarang.
-    const projects = serverProjects.slice().sort((a, b) => {
-      return new Date(b.Date_Last_Activity) - new Date(a.Date_Last_Activity);
-    });
-
-    State.projectsCache = pendingFromQueue.concat(projects);
-    this.applyQuickFilterAndSearch();
+    } catch (e) { /* localStorage penuh/diblokir — abaikan, tidak fatal */ }
   },
 
-  applyQuickFilterAndSearch() {
-    let list = State.projectsCache;
+  get() {
+    try {
+      const raw = localStorage.getItem(this.STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  },
 
-    if (State.quickFilter === 'Aktif') {
-      list = list.filter((p) => p.Pipeline_Stage !== 'Won' && p.Pipeline_Stage !== 'Lost');
-    } else if (State.quickFilter === 'Won') {
-      list = list.filter((p) => p.Pipeline_Stage === 'Won');
-    } else if (State.quickFilter === 'Lost') {
-      list = list.filter((p) => p.Pipeline_Stage === 'Lost');
+  formatSavedAt(timestamp) {
+    const d = new Date(timestamp);
+    return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  }
+};
+
+const Utils = {
+  formatCurrency(value) {
+    return 'Rp ' + Number(value || 0).toLocaleString('id-ID');
+  },
+  formatShortDate(dateValue) {
+    if (!dateValue) return '-';
+    const d = new Date(dateValue);
+    if (isNaN(d.getTime())) return '-';
+    const bulan = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    return d.getDate() + ' ' + bulan[d.getMonth()];
+  },
+  /** Warna grafik konsisten dengan token desain (biru/hijau/kuning/merah + variasi) */
+  chartPalette: ['#1E3A8A', '#16A34A', '#F59E0B', '#DC2626', '#0EA5E9', '#8B5CF6', '#EC4899', '#64748B'],
+  chartTextColor() {
+    return ThemeToggle.isDark() ? '#9CA3AF' : '#6B7280';
+  },
+  chartGridColor() {
+    return ThemeToggle.isDark() ? '#2E3036' : '#E5E7EB';
+  }
+};
+
+/* ============================================================
+   6. TAB NAVIGATION
+   ============================================================ */
+const TabNav = {
+  init() {
+    document.querySelectorAll('.mgr-tab').forEach((tab) => {
+      tab.addEventListener('click', () => this.goTo(tab.dataset.tab));
+    });
+  },
+  goTo(tabName) {
+    State.currentTab = tabName;
+    document.querySelectorAll('.mgr-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tabName));
+    document.querySelectorAll('.mgr-tab-content').forEach((c) => c.classList.remove('active'));
+    document.getElementById('tab-' + tabName).classList.add('active');
+
+    if (tabName === 'overview' && !State.overviewData) {
+      OverviewPage.load();
+    }
+    if (tabName === 'explorer' && !State.explorerLoaded) {
+      ExplorerPage.load();
+    }
+    if (tabName === 'performance' && !State.performanceLoaded) {
+      PerformancePage.load();
+    }
+    if (tabName === 'log' && !State.logLoaded) {
+      LogPage.load();
+    }
+  }
+};
+
+/* ============================================================
+   7. FILTER BAR
+   ============================================================ */
+const FilterBar = {
+  async init() {
+    // Dijalankan BERSAMAAN (bukan tunggu satu-satu) — 2 permintaan ini
+    // tidak saling bergantung, jadi tidak ada alasan menunggu berurutan.
+    await Promise.all([this.loadSalesOptions(), this.loadStageOptions()]);
+
+    document.getElementById('btn-apply-filter').addEventListener('click', () => {
+      State.filters.date_from = document.getElementById('filter-date-from').value;
+      State.filters.date_to = document.getElementById('filter-date-to').value;
+      State.filters.sales_code = document.getElementById('filter-sales').value;
+      State.filters.pipeline_stage = document.getElementById('filter-stage').value;
+      State.filters.lead_source = document.getElementById('filter-lead-source').value;
+      State.filters.product_type = document.getElementById('filter-product').value;
+      OverviewPage.load();
+    });
+
+    document.getElementById('btn-reset-filter').addEventListener('click', () => {
+      document.getElementById('filter-date-from').value = '';
+      document.getElementById('filter-date-to').value = '';
+      document.getElementById('filter-sales').value = '';
+      document.getElementById('filter-stage').value = '';
+      document.getElementById('filter-lead-source').value = '';
+      document.getElementById('filter-product').value = '';
+      State.filters = { date_from: '', date_to: '', sales_code: '', pipeline_stage: '', lead_source: '', product_type: '' };
+      OverviewPage.load();
+    });
+  },
+
+  async loadSalesOptions() {
+    const result = await Api.call('readSalesList', {});
+    const select = document.getElementById('filter-sales');
+    State.salesNameByCode = {};
+    if (result.success && result.data) {
+      result.data.forEach((s) => {
+        State.salesNameByCode[s.sales_code] = s.sales_name;
+        const opt = document.createElement('option');
+        opt.value = s.sales_code;
+        opt.textContent = s.sales_name;
+        select.appendChild(opt);
+      });
+    }
+  },
+
+  /**
+   * Diambil dari sheet Lookup yang SAMA dipakai app Sales (action
+   * readLookupOptions) — supaya kalau Anda tambah/ubah pipeline stage
+   * lewat Google Sheets, filter di sini otomatis ikut ter-update tanpa
+   * perlu edit kode. Daftar ini juga dipakai ulang oleh grafik Funnel
+   * Pipeline supaya SEMUA stage tampil walau belum ada datanya (0).
+   */
+  async loadStageOptions() {
+    const result = await Api.call('readLookupOptions', {});
+    const stages = (result.success && result.data && result.data.Pipeline_Stage) || [];
+    State.lookupStages = stages;
+
+    const select = document.getElementById('filter-stage');
+    stages.forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      select.appendChild(opt);
+    });
+
+    // Sekalian isi dropdown filter Sumber Leads di halaman Explorer,
+    // dari data Lookup yang sama (tidak perlu request terpisah lagi).
+    const leadSources = (result.success && result.data && result.data.Lead_Source) || [];
+    const leadSourceSelect = document.getElementById('explorer-lead-source');
+    leadSources.forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      leadSourceSelect.appendChild(opt);
+    });
+
+    // Filter GLOBAL Sumber Leads & Jenis Produk (dipakai Halaman Overview)
+    // — sumber datanya sama, dari 1 fetch readLookupOptions ini juga.
+    const globalLeadSourceSelect = document.getElementById('filter-lead-source');
+    leadSources.forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      globalLeadSourceSelect.appendChild(opt);
+    });
+
+    const productTypes = (result.success && result.data && result.data.Product_Type) || [];
+    const globalProductSelect = document.getElementById('filter-product');
+    productTypes.forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      globalProductSelect.appendChild(opt);
+    });
+  }
+};
+
+/* ============================================================
+   8. HALAMAN OVERVIEW
+   ============================================================ */
+const OverviewPage = {
+  async load() {
+    // Cache lokal HANYA dipakai kalau tidak ada filter aktif (tampilan
+    // default) — supaya tidak perlu simpan cache terpisah per kombinasi
+    // filter yang mungkin dicoba Manager.
+    const isDefaultFilter = !State.filters.date_from && !State.filters.date_to &&
+      !State.filters.sales_code && !State.filters.pipeline_stage &&
+      !State.filters.lead_source && !State.filters.product_type;
+
+    const cached = isDefaultFilter ? OverviewCache.get() : null;
+    const updatedAtEl = document.getElementById('overview-updated-at');
+
+    if (cached) {
+      // Tampilkan data lama SEKARANG JUGA — tanpa spinner, instan —
+      // sambil diam-diam ambil data terbaru di belakang layar.
+      document.getElementById('overview-loading').hidden = true;
+      document.getElementById('overview-content').hidden = false;
+      State.overviewData = cached.overviewData;
+      State.trendData = cached.trendData;
+      this.renderKpi(cached.overviewData.kpi);
+      this.renderWidgets(cached.overviewData);
+      this.renderAllCharts();
+      updatedAtEl.textContent = 'Data per ' + OverviewCache.formatSavedAt(cached.savedAt) + ' — memperbarui...';
+    } else {
+      document.getElementById('overview-loading').hidden = false;
+      LoadingIndicator.start('overview-loading');
+      document.getElementById('overview-content').hidden = true;
+      updatedAtEl.textContent = '';
     }
 
-    if (State.searchKeyword) {
-      const kw = State.searchKeyword.toLowerCase();
-      list = list.filter((p) =>
-        String(p.Project_Name).toLowerCase().includes(kw) ||
-        String(p.Location_Address).toLowerCase().includes(kw)
-      );
+    const payload = {};
+    if (State.filters.date_from) payload.date_from = State.filters.date_from;
+    if (State.filters.date_to) payload.date_to = State.filters.date_to;
+    if (State.filters.sales_code) payload.sales_code = State.filters.sales_code;
+    if (State.filters.pipeline_stage) payload.pipeline_stage = State.filters.pipeline_stage;
+    if (State.filters.lead_source) payload.lead_source = State.filters.lead_source;
+    if (State.filters.product_type) payload.product_type = State.filters.product_type;
+
+    const trendPayload = { granularity: State.trendGranularity };
+    if (State.filters.sales_code) trendPayload.sales_code = State.filters.sales_code;
+
+    // readManagerOverview & readTrendData tidak saling bergantung — jalankan
+    // BERSAMAAN, bukan tunggu satu-satu, supaya total waktu tunggu = yang
+    // paling lambat dari keduanya, bukan jumlah keduanya.
+    const [result, trendResult] = await Promise.all([
+      Api.call('readManagerOverview', payload),
+      Api.call('readTrendData', trendPayload)
+    ]);
+    const trendData = (trendResult.success && trendResult.data) ? trendResult.data : [];
+
+    if (!cached) {
+      document.getElementById('overview-loading').hidden = true;
+      LoadingIndicator.stop('overview-loading');
     }
 
-    this.render(list);
+    if (!result.success) {
+      if (cached) {
+        // Tampilan lama (dari cache) tetap dibiarkan — cuma kasih tahu
+        // pembaruan gagal, jangan hapus data yang sudah terlihat.
+        updatedAtEl.textContent = 'Data per ' + OverviewCache.formatSavedAt(cached.savedAt) + ' — gagal memperbarui, cek koneksi';
+      } else {
+        Snackbar.show(result.message || 'Gagal memuat data overview', 'error');
+      }
+      return;
+    }
+
+    State.overviewData = result.data;
+    State.trendData = trendData;
+    document.getElementById('overview-content').hidden = false;
+
+    this.renderKpi(result.data.kpi);
+    this.renderWidgets(result.data);
+    this.renderAllCharts();
+
+    if (isDefaultFilter) {
+      OverviewCache.save(result.data, trendData);
+      updatedAtEl.textContent = 'Data per ' + OverviewCache.formatSavedAt(Date.now());
+    } else {
+      updatedAtEl.textContent = '';
+    }
+  },
+
+  renderKpi(kpi) {
+    document.getElementById('kpi-total-projects').textContent = kpi.total_projects;
+    document.getElementById('kpi-pipeline-value').textContent = Utils.formatCurrency(kpi.total_pipeline_value);
+    document.getElementById('kpi-won-value').textContent = Utils.formatCurrency(kpi.won_value);
+    document.getElementById('kpi-win-rate').textContent = kpi.win_rate_percent + '%';
+    document.getElementById('kpi-total-activities').textContent = kpi.total_activities_period;
+  },
+
+  renderWidgets(data) {
+    const staleEl = document.getElementById('widget-stale-list');
+    staleEl.innerHTML = data.stale_projects.length === 0
+      ? '<p class="empty-state">Tidak ada project yang butuh perhatian.</p>'
+      : data.stale_projects.map((p) =>
+          '<div class="widget-item"><div class="widget-item-title">' + p.project_name + '</div>' +
+          '<div class="widget-item-sub">' + p.sales_name + ' · Tidak ada aktivitas ' + p.days_since_activity + ' hari</div></div>'
+        ).join('');
+
+    const followupEl = document.getElementById('widget-followup-list');
+    followupEl.innerHTML = data.followups_today.length === 0
+      ? '<p class="empty-state">Tidak ada follow up jatuh tempo hari ini.</p>'
+      : data.followups_today.map((f) =>
+          '<div class="widget-item"><div class="widget-item-title">' + f.project_name + '</div>' +
+          '<div class="widget-item-sub">' + f.sales_name + '</div></div>'
+        ).join('');
+
+    const recentEl = document.getElementById('widget-recent-list');
+    recentEl.innerHTML = data.recent_activities.length === 0
+      ? '<p class="empty-state">Belum ada aktivitas.</p>'
+      : data.recent_activities.map((a) =>
+          '<div class="widget-item"><div class="widget-item-title">' + a.project_name + ' — ' + a.activity_type + '</div>' +
+          '<div class="widget-item-sub">' + a.sales_name + ' · ' + Utils.formatShortDate(a.timestamp) + '</div></div>'
+        ).join('');
+  },
+
+  async loadTrend() {
+    const payload = { granularity: State.trendGranularity };
+    if (State.filters.sales_code) payload.sales_code = State.filters.sales_code;
+    const result = await Api.call('readTrendData', payload);
+    State.trendData = (result.success && result.data) ? result.data : [];
+  },
+
+  renderAllCharts() {
+    if (!State.overviewData) return;
+    this.renderFunnelChart(State.overviewData.funnel);
+    this.renderStatusPie(State.overviewData.status_breakdown);
+    this.renderTrendChart(State.trendData || []);
+    this.renderSalesRankingChart(State.overviewData.sales_ranking);
+    this.renderLostReasonsPie(State.overviewData.lost_reasons);
+    this.renderLeadSourcePie(State.overviewData.lead_source_breakdown || {});
+    this.renderProductTypePie(State.overviewData.product_breakdown || {});
+  },
+
+  destroyChart(key) {
+    if (State.charts[key]) { State.charts[key].destroy(); delete State.charts[key]; }
+  },
+
+  renderFunnelChart(funnel) {
+    this.destroyChart('funnel');
+
+    // Pakai daftar stage dari sheet Lookup (State.lookupStages) sebagai
+    // dasar — supaya SEMUA stage tampil di funnel walau belum ada satu
+    // project pun di stage itu (nilainya 0), bukan cuma stage yang
+    // kebetulan sudah punya data.
+    const baseStages = (State.lookupStages && State.lookupStages.length > 0)
+      ? State.lookupStages.slice()
+      : ['New Visit', 'Qualified', 'Quotation Sent', 'Negotiation', 'Won', 'Lost'];
+
+    // Tambahkan juga stage yang ADA di data tapi entah kenapa tidak ada
+    // di daftar Lookup (jaga-jaga data lama/tidak sinkron)
+    Object.keys(funnel).forEach((s) => {
+      if (!baseStages.includes(s)) baseStages.push(s);
+    });
+
+    const labels = baseStages;
+    const values = baseStages.map((s) => funnel[s] || 0);
+
+    const ctx = document.getElementById('chart-funnel').getContext('2d');
+    State.charts.funnel = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ data: values, backgroundColor: Utils.chartPalette[0], borderRadius: 6 }] },
+      options: {
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: Utils.chartTextColor(), stepSize: 1 }, grid: { color: Utils.chartGridColor() } },
+          y: { ticks: { color: Utils.chartTextColor() }, grid: { display: false } }
+        }
+      }
+    });
+  },
+
+  renderStatusPie(status) {
+    this.destroyChart('statusPie');
+    const ctx = document.getElementById('chart-status-pie').getContext('2d');
+    State.charts.statusPie = new Chart(ctx, {
+      type: 'pie',
+      data: {
+        labels: ['Won', 'Lost', 'Masih Berjalan'],
+        datasets: [{ data: [status.won, status.lost, status.ongoing], backgroundColor: [Utils.chartPalette[1], Utils.chartPalette[3], Utils.chartPalette[0]] }]
+      },
+      options: { plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } } }
+    });
+  },
+
+  renderTrendChart(trend) {
+    this.destroyChart('trend');
+    const ctx = document.getElementById('chart-trend').getContext('2d');
+    State.charts.trend = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: trend.map((t) => t.label),
+        datasets: [
+          { label: 'Visit', data: trend.map((t) => t.visit_count), borderColor: Utils.chartPalette[0], tension: 0.3 },
+          { label: 'Won', data: trend.map((t) => t.won_count), borderColor: Utils.chartPalette[1], tension: 0.3 },
+          { label: 'Lost', data: trend.map((t) => t.lost_count), borderColor: Utils.chartPalette[3], tension: 0.3 }
+        ]
+      },
+      options: {
+        plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } },
+        scales: {
+          x: { ticks: { color: Utils.chartTextColor() }, grid: { color: Utils.chartGridColor() } },
+          y: { ticks: { color: Utils.chartTextColor() }, grid: { color: Utils.chartGridColor() }, beginAtZero: true }
+        }
+      }
+    });
+  },
+
+  renderSalesRankingChart(ranking) {
+    this.destroyChart('salesRanking');
+    const ctx = document.getElementById('chart-sales-ranking').getContext('2d');
+    State.charts.salesRanking = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ranking.map((r) => r.sales_name),
+        datasets: [{ data: ranking.map((r) => r.total_activities), backgroundColor: Utils.chartPalette[2], borderRadius: 6 }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: Utils.chartTextColor() }, grid: { display: false } },
+          y: { ticks: { color: Utils.chartTextColor() }, grid: { color: Utils.chartGridColor() } }
+        }
+      }
+    });
+  },
+
+  renderLostReasonsPie(reasons) {
+    this.destroyChart('lostReasons');
+    const ctx = document.getElementById('chart-lost-reasons').getContext('2d');
+    const labels = Object.keys(reasons);
+    State.charts.lostReasons = new Chart(ctx, {
+      type: 'pie',
+      data: { labels, datasets: [{ data: labels.map((l) => reasons[l]), backgroundColor: Utils.chartPalette }] },
+      options: { plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } } }
+    });
+  },
+
+  renderLeadSourcePie(sources) {
+    this.destroyChart('leadSource');
+    const ctx = document.getElementById('chart-lead-source').getContext('2d');
+    const labels = Object.keys(sources);
+    State.charts.leadSource = new Chart(ctx, {
+      type: 'pie',
+      data: { labels, datasets: [{ data: labels.map((l) => sources[l]), backgroundColor: Utils.chartPalette }] },
+      options: { plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } } }
+    });
+  },
+
+  renderProductTypePie(products) {
+    this.destroyChart('productType');
+    const ctx = document.getElementById('chart-product-type').getContext('2d');
+    const labels = Object.keys(products);
+    State.charts.productType = new Chart(ctx, {
+      type: 'pie',
+      data: { labels, datasets: [{ data: labels.map((l) => products[l]), backgroundColor: Utils.chartPalette }] },
+      options: { plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } } }
+    });
+  },
+
+  initGranularityToggle() {
+    document.getElementById('trend-granularity-chips').addEventListener('click', async (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      document.querySelectorAll('#trend-granularity-chips .chip').forEach((c) => c.classList.remove('selected'));
+      chip.classList.add('selected');
+      State.trendGranularity = chip.dataset.granularity;
+      await this.loadTrend();
+      this.renderTrendChart(State.trendData || []);
+    });
+  }
+};
+
+/* ============================================================
+   9. EXPORT
+   ============================================================ */
+/* ============================================================
+   9. HALAMAN PROJECT EXPLORER
+   ============================================================ */
+const ExplorerPage = {
+  async init() {
+    document.getElementById('btn-explorer-search').addEventListener('click', () => this.load());
+    document.getElementById('explorer-search').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.load();
+    });
+  },
+
+  async load() {
+    document.getElementById('explorer-loading').hidden = false;
+    LoadingIndicator.start('explorer-loading');
+    document.getElementById('explorer-table-wrap').hidden = true;
+
+    const keyword = document.getElementById('explorer-search').value.trim();
+    const leadSource = document.getElementById('explorer-lead-source').value;
+    let result;
+
+    if (keyword) {
+      const searchPayload = { keyword };
+      if (leadSource) searchPayload.lead_source = leadSource;
+      result = await Api.call('searchProject', searchPayload);
+    } else {
+      const payload = {};
+      if (State.filters.date_from) payload.date_from = State.filters.date_from;
+      if (State.filters.date_to) payload.date_to = State.filters.date_to;
+      if (State.filters.sales_code) payload.sales_code = State.filters.sales_code;
+      if (State.filters.pipeline_stage) payload.pipeline_stage = State.filters.pipeline_stage;
+      if (leadSource) payload.lead_source = leadSource;
+      result = await Api.call('filterProject', payload);
+    }
+
+    document.getElementById('explorer-loading').hidden = true;
+    LoadingIndicator.stop('explorer-loading');
+    document.getElementById('explorer-table-wrap').hidden = false;
+    State.explorerLoaded = true;
+
+    if (!result.success) {
+      Snackbar.show(result.message || 'Gagal memuat daftar project', 'error');
+      return;
+    }
+
+    this.render(result.data || []);
   },
 
   render(projects) {
-    const container = document.getElementById('project-list');
-    const emptyEl = document.getElementById('project-list-empty');
-    container.innerHTML = '';
+    const tbody = document.getElementById('explorer-table-body');
+    const emptyEl = document.getElementById('explorer-empty');
 
     if (projects.length === 0) {
+      tbody.innerHTML = '';
       emptyEl.hidden = false;
       return;
     }
     emptyEl.hidden = true;
 
-    projects.forEach((p) => {
-      const dotClass = Utils.healthDotClass(p);
-      const valueText = p.Estimated_Value ? ('Rp ' + Number(p.Estimated_Value).toLocaleString('id-ID')) : '-';
-      const pendingBadge = p._pendingSync
-        ? '<span class="pending-badge">⏳ Menunggu Sync</span>'
-        : '';
+    projects.sort((a, b) => new Date(b.Date_Last_Activity) - new Date(a.Date_Last_Activity));
 
-      const contact = State.contactsSummary[p.Project_ID];
-      const contactLine = contact
-        ? '<p class="card-sub-light">' + Icons.user + ' ' + contact.contact_name + ' (' + contact.role + ')</p>'
-        : '';
+    tbody.innerHTML = projects.map((p) => {
+      const valueText = p.Estimated_Value ? Utils.formatCurrency(p.Estimated_Value) : '-';
+      const salesName = (State.salesNameByCode && State.salesNameByCode[p.Sales_Code]) || p.Sales_Code;
+      const leadSource = p.Lead_Source || '-';
+      return '<tr data-project-id="' + p.Project_ID + '" data-project-name="' + p.Project_Name + '" data-project-stage="' + p.Pipeline_Stage + '" data-project-value="' + valueText + '" data-project-address="' + (p.Location_Address || '-') + '" data-project-lead-source="' + leadSource + '">' +
+        '<td>' + p.Project_Name + '</td>' +
+        '<td>' + salesName + '</td>' +
+        '<td>' + p.Pipeline_Stage + '</td>' +
+        '<td>' + leadSource + '</td>' +
+        '<td>' + valueText + '</td>' +
+        '<td>' + (p.Location_Address || '-') + '</td>' +
+        '<td>' + Utils.formatShortDate(p.Date_Last_Activity) + '</td>' +
+        '</tr>';
+    }).join('');
 
-      const statusLabel = Utils.statusLabel(p.Pipeline_Stage);
-      const glowClass = Utils.statusGlowClass(p.Pipeline_Stage);
-      const lastUpdateText = p.Date_Last_Activity ? Utils.formatShortDate(p.Date_Last_Activity) : '';
-
-      const card = document.createElement('div');
-      card.className = 'card ' + glowClass;
-      card.setAttribute('data-open-project', p.Project_ID);
-      card.setAttribute('data-project-name', p.Project_Name);
-      card.setAttribute('data-project-address', p.Location_Address || '');
-      card.setAttribute('data-project-stage', p.Pipeline_Stage);
-      card.setAttribute('data-project-product', p.Product_Type || '');
-      card.setAttribute('data-project-construction', p.Construction_Stage || '');
-      card.innerHTML =
-        '<h3 class="card-title"><span class="dot ' + dotClass + '"></span>' + p.Project_Name +
-        ' <span class="card-status-suffix">(' + statusLabel + ')</span></h3>' +
-        '<p class="card-sub">' + p.Pipeline_Stage + '</p>' +
-        '<p class="card-sub-light">' + Icons.pin + ' ' + (p.Location_Address || '-') +
-        (lastUpdateText ? ' &nbsp; ' + Icons.calendar + ' ' + lastUpdateText : '') + '</p>' +
-        (p.Estimated_Value ? '<p class="card-sub-light">' + valueText + '</p>' : '') +
-        contactLine +
-        pendingBadge;
-      container.appendChild(card);
-    });
-
-    container.querySelectorAll('[data-open-project]').forEach((el) => {
-      el.addEventListener('click', () => {
-        TimelineView.open(
-          el.dataset.openProject,
-          el.dataset.projectName,
-          el.dataset.projectAddress,
-          el.dataset.projectStage,
-          el.dataset.projectProduct,
-          el.dataset.projectConstruction
+    tbody.querySelectorAll('tr').forEach((row) => {
+      row.addEventListener('click', () => {
+        DetailModal.open(
+          row.dataset.projectId,
+          row.dataset.projectName,
+          row.dataset.projectStage,
+          row.dataset.projectValue,
+          row.dataset.projectAddress,
+          row.dataset.projectLeadSource
         );
       });
     });
@@ -960,739 +678,360 @@ const ProjectListView = {
 };
 
 /* ============================================================
-   9. RENDER: ACTIVITY TIMELINE
+   10. MODAL DETAIL PROJECT (dipakai dari Project Explorer)
    ============================================================ */
-const TimelineView = {
-  async open(projectId, projectName, address, stage, productType, constructionStage) {
-    State.currentProjectId = projectId;
-    State.currentProjectName = projectName;
-    State.currentProjectStage = stage;
-
-    document.getElementById('timeline-project-name').textContent = projectName;
-    document.getElementById('timeline-project-meta').textContent = stage;
-    document.getElementById('timeline-project-address').textContent = address || '-';
-
-    // Border glow di header detail mengikuti status project (Aktif/Won/Lost),
-    // konsisten dengan warna yang sama di kartu Project List.
-    const headerCard = document.querySelector('#view-timeline .timeline-header');
-    headerCard.classList.remove('glow-success', 'glow-warning', 'glow-danger');
-    headerCard.classList.add(Utils.statusGlowClass(stage));
-
-    const detailParts = [];
-    if (productType) detailParts.push('Jenis Produk: ' + productType);
-    if (constructionStage) detailParts.push('Tahap Konstruksi: ' + constructionStage);
-    document.getElementById('timeline-project-detail').textContent =
-      detailParts.length > 0 ? 'Detail Proyek: ' + detailParts.join(' · ') : '';
-
-    // PENTING: bersihkan konten lama SEGERA (foto/aktivitas project
-    // sebelumnya) dan tampilkan loading — supaya sales tidak sempat
-    // melihat data project LAIN sekilas saat berpindah, yang bisa
-    // dikira aplikasi error/nyasar.
-    const listContainer = document.getElementById('timeline-list');
-    listContainer.innerHTML = '<p id="timeline-loading" class="loading-text">Memuat riwayat aktivitas</p>';
-    LoadingIndicator.start(document.getElementById('timeline-loading'), 'Memuat riwayat aktivitas');
-
-    document.getElementById('timeline-project-contacts').innerHTML = '';
-    this.loadContacts(projectId); // berjalan paralel, tidak perlu ditunggu
-
-    Router.goTo('timeline');
+const DetailModal = {
+  init() {
+    document.getElementById('btn-close-detail').addEventListener('click', () => this.close());
+    document.getElementById('project-detail-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'project-detail-overlay') this.close();
+    });
+    document.getElementById('btn-close-lightbox').addEventListener('click', () => Lightbox.close());
+    document.getElementById('photo-lightbox').addEventListener('click', (e) => {
+      if (e.target.id === 'photo-lightbox') Lightbox.close();
+    });
   },
 
-  /**
-   * Mengambil & menampilkan kontak yang terhubung ke project ini (no. telepon
-   * & role), supaya sales tidak perlu mengingat-ingat kontak lokasi —
-   * nomor telepon bisa langsung diklik untuk telpon atau chat WhatsApp.
-   */
-  async loadContacts(projectId) {
-    const result = await Api.call('readProjectContacts', { project_id: projectId }, { noQueue: true }).catch(() => null);
-    const container = document.getElementById('timeline-project-contacts');
-    if (!result || !result.success || !result.data || result.data.length === 0) {
-      container.innerHTML = '';
+  async open(projectId, projectName, stage, valueText, address, leadSource) {
+    document.getElementById('detail-project-name').textContent = projectName;
+    document.getElementById('detail-project-stage').textContent = stage;
+    document.getElementById('detail-project-value').textContent = valueText;
+    document.getElementById('detail-project-address').textContent = address;
+    document.getElementById('detail-project-lead-source').textContent =
+      (leadSource && leadSource !== '-') ? 'Sumber: ' + leadSource : '';
+    document.getElementById('detail-contacts').innerHTML = '<p class="empty-state">Memuat kontak...</p>';
+    document.getElementById('detail-photo-grid').innerHTML = '';
+    document.getElementById('detail-timeline').innerHTML = '<p class="loading-text">Memuat riwayat...</p>';
+
+    document.getElementById('project-detail-overlay').hidden = false;
+
+    const [contactsResult, timelineResult] = await Promise.all([
+      Api.call('readProjectContacts', { project_id: projectId }),
+      Api.call('readActivityTimeline', { project_id: projectId })
+    ]);
+
+    this.renderContacts(contactsResult.success ? contactsResult.data : []);
+    this.renderTimelineAndPhotos(timelineResult.success ? timelineResult.data : []);
+  },
+
+  close() {
+    document.getElementById('project-detail-overlay').hidden = true;
+  },
+
+  renderContacts(contacts) {
+    const el = document.getElementById('detail-contacts');
+    if (!contacts || contacts.length === 0) {
+      el.innerHTML = '';
       return;
     }
-
-    container.innerHTML = result.data.map((c) => {
+    el.innerHTML = contacts.map((c) => {
       const digits = String(c.Phone_Number).replace(/\D/g, '');
       const waNumber = digits.startsWith('0') ? '62' + digits.slice(1) : digits;
-      return (
-        '<div class="contact-item">' +
-        '<div class="contact-name-row">' + Icons.user + ' ' + c.Contact_Name + ' (' + c.Role + ')</div>' +
-        '<a href="tel:' + digits + '" class="contact-link">' + Icons.phone + ' Telpon</a> ' +
-        '<a href="https://wa.me/' + waNumber + '" target="_blank" rel="noopener" class="contact-link">' + Icons.message + ' WhatsApp</a>' +
-        '</div>'
-      );
+      return '<div class="contact-item">' +
+        '<div class="contact-name-row">' + c.Contact_Name + ' (' + c.Role + ')</div>' +
+        '<a href="tel:' + digits + '" class="contact-link">Telpon</a>' +
+        '<a href="https://wa.me/' + waNumber + '" target="_blank" rel="noopener" class="contact-link">WhatsApp</a>' +
+        '</div>';
     }).join('');
   },
 
-  async load(projectId) {
-    const result = await Api.call('readActivityTimeline', { project_id: projectId }, { noQueue: true }).catch(() => null);
-    LoadingIndicator.stop();
+  renderTimelineAndPhotos(activities) {
+    const timelineEl = document.getElementById('detail-timeline');
+    const photoGridEl = document.getElementById('detail-photo-grid');
 
-    if (!result || !result.success) {
-      Snackbar.show('Gagal memuat riwayat aktivitas', 'error');
-      document.getElementById('timeline-list').innerHTML = '<p class="empty-state">Gagal memuat data. Coba lagi.</p>';
+    if (!activities || activities.length === 0) {
+      timelineEl.innerHTML = '<p class="empty-state">Belum ada aktivitas.</p>';
+      photoGridEl.innerHTML = '';
+      return;
+    }
+
+    const allPhotos = [];
+    activities.forEach((a) => {
+      if (a.photos) a.photos.forEach((p) => allPhotos.push(p.url));
+    });
+    photoGridEl.innerHTML = allPhotos.length === 0
+      ? '<p class="empty-state">Belum ada foto.</p>'
+      : allPhotos.map((url) => '<img src="' + url + '" alt="Foto project" loading="lazy" data-full="' + url + '" />').join('');
+
+    photoGridEl.querySelectorAll('img').forEach((img) => {
+      img.addEventListener('click', () => Lightbox.open(img.dataset.full));
+    });
+
+    timelineEl.innerHTML = activities.map((a) =>
+      '<div class="timeline-item">' +
+      '<p class="timeline-date">' + Utils.formatShortDate(a.Timestamp) + ' · ' + a.Activity_Type + '</p>' +
+      '<p class="timeline-note">' + a.Activity_Note + '</p>' +
+      '</div>'
+    ).join('');
+  }
+};
+
+/* ============================================================
+   11. LIGHTBOX FOTO — klik thumbnail untuk perbesar
+   ============================================================ */
+const Lightbox = {
+  open(url) {
+    document.getElementById('lightbox-image').src = url;
+    document.getElementById('photo-lightbox').hidden = false;
+  },
+  close() {
+    document.getElementById('photo-lightbox').hidden = true;
+  }
+};
+
+/* ============================================================
+   12. HALAMAN PERFORMA SALES
+   ============================================================ */
+const PerformancePage = {
+  async load() {
+    document.getElementById('performance-loading').hidden = false;
+    LoadingIndicator.start('performance-loading');
+    document.getElementById('performance-content').hidden = true;
+
+    const payload = {};
+    if (State.filters.date_from) payload.date_from = State.filters.date_from;
+    if (State.filters.date_to) payload.date_to = State.filters.date_to;
+
+    const result = await Api.call('readSalesPerformance', payload);
+
+    document.getElementById('performance-loading').hidden = true;
+    LoadingIndicator.stop('performance-loading');
+    document.getElementById('performance-content').hidden = false;
+    State.performanceLoaded = true;
+
+    if (!result.success) {
+      Snackbar.show(result.message || 'Gagal memuat data performa sales', 'error');
       return;
     }
 
     this.render(result.data || []);
+  },
 
-    // Perbarui status utama di header berdasarkan aktivitas TERBARU
-    // (sebelumnya header hanya memakai status dari saat kartu di-tap,
-    // jadi tidak ikut berubah setelah ada follow up baru)
-    if (result.data && result.data.length > 0) {
-      const latestStage = result.data[0].Pipeline_Stage_At_This_Point;
-      if (latestStage) {
-        State.currentProjectStage = latestStage;
-        document.getElementById('timeline-project-meta').textContent = latestStage;
-        const headerCard = document.querySelector('#view-timeline .timeline-header');
-        headerCard.classList.remove('glow-success', 'glow-warning', 'glow-danger');
-        headerCard.classList.add(Utils.statusGlowClass(latestStage));
-      }
+  render(performance) {
+    const tbody = document.getElementById('performance-table-body');
+    if (performance.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7"><p class="empty-state">Belum ada data aktivitas.</p></td></tr>';
+      return;
     }
+
+    tbody.innerHTML = performance.map((p) =>
+      '<tr data-sales-code="' + p.sales_code + '" data-sales-name="' + p.sales_name + '">' +
+      '<td><strong>' + p.sales_name + '</strong></td>' +
+      '<td>' + p.total_activities + '</td>' +
+      '<td>' + p.visit_count + '</td>' +
+      '<td>' + p.won_count + '</td>' +
+      '<td>' + p.lost_count + '</td>' +
+      '<td>' + Utils.formatCurrency(p.won_value) + '</td>' +
+      '<td>' + p.active_projects_count + '</td>' +
+      '</tr>'
+    ).join('');
+
+    tbody.querySelectorAll('tr').forEach((row) => {
+      row.addEventListener('click', () => {
+        this.loadDetail(row.dataset.salesCode, row.dataset.salesName);
+      });
+    });
+  },
+
+  async loadDetail(salesCode, salesName) {
+    document.getElementById('performance-detail').hidden = false;
+    document.getElementById('performance-detail-title').textContent = 'Detail — ' + salesName;
+    document.getElementById('performance-detail-kpi').innerHTML = '<p class="loading-text">Memuat...</p>';
+
+    const overviewPayload = { sales_code: salesCode };
+    if (State.filters.date_from) overviewPayload.date_from = State.filters.date_from;
+    if (State.filters.date_to) overviewPayload.date_to = State.filters.date_to;
+
+    const [overviewResult, trendResult] = await Promise.all([
+      Api.call('readManagerOverview', overviewPayload),
+      Api.call('readTrendData', { granularity: State.trendGranularity, sales_code: salesCode })
+    ]);
+
+    if (overviewResult.success) {
+      const kpi = overviewResult.data.kpi;
+      document.getElementById('performance-detail-kpi').innerHTML =
+        '<div class="kpi-card glow-primary"><span class="kpi-label">Total Project</span><span class="kpi-value">' + kpi.total_projects + '</span></div>' +
+        '<div class="kpi-card glow-success"><span class="kpi-label">Nilai Pipeline</span><span class="kpi-value">' + Utils.formatCurrency(kpi.total_pipeline_value) + '</span></div>' +
+        '<div class="kpi-card glow-warning"><span class="kpi-label">Win Rate</span><span class="kpi-value">' + kpi.win_rate_percent + '%</span></div>' +
+        '<div class="kpi-card glow-danger"><span class="kpi-label">Total Aktivitas</span><span class="kpi-value">' + kpi.total_activities_period + '</span></div>';
+    }
+
+    if (trendResult.success) {
+      this.renderTrendChart(trendResult.data || []);
+    }
+
+    document.getElementById('performance-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  },
+
+  renderTrendChart(trend) {
+    if (State.charts.performanceTrend) { State.charts.performanceTrend.destroy(); }
+    const ctx = document.getElementById('chart-performance-trend').getContext('2d');
+    State.charts.performanceTrend = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: trend.map((t) => t.label),
+        datasets: [
+          { label: 'Visit', data: trend.map((t) => t.visit_count), borderColor: Utils.chartPalette[0], tension: 0.3 },
+          { label: 'Won', data: trend.map((t) => t.won_count), borderColor: Utils.chartPalette[1], tension: 0.3 },
+          { label: 'Lost', data: trend.map((t) => t.lost_count), borderColor: Utils.chartPalette[3], tension: 0.3 }
+        ]
+      },
+      options: {
+        plugins: { legend: { position: 'bottom', labels: { color: Utils.chartTextColor() } } },
+        scales: {
+          x: { ticks: { color: Utils.chartTextColor() }, grid: { color: Utils.chartGridColor() } },
+          y: { ticks: { color: Utils.chartTextColor() }, grid: { color: Utils.chartGridColor() }, beginAtZero: true }
+        }
+      }
+    });
+  }
+};
+
+/* ============================================================
+   13. HALAMAN LOG AKTIVITAS
+   ============================================================ */
+const LogPage = {
+  init() {
+    document.getElementById('btn-log-filter').addEventListener('click', () => {
+      State.logOffset = 0;
+      this.load();
+    });
+    document.getElementById('btn-log-prev').addEventListener('click', () => {
+      if (State.logOffset - State.logLimit >= 0) {
+        State.logOffset -= State.logLimit;
+        this.load();
+      }
+    });
+    document.getElementById('btn-log-next').addEventListener('click', () => {
+      if (State.logOffset + State.logLimit < State.logTotalCount) {
+        State.logOffset += State.logLimit;
+        this.load();
+      }
+    });
+  },
+
+  async load() {
+    document.getElementById('log-loading').hidden = false;
+    LoadingIndicator.start('log-loading');
+    document.getElementById('log-table-wrap').hidden = true;
+
+    const payload = {
+      limit: State.logLimit,
+      offset: State.logOffset
+    };
+    if (State.filters.date_from) payload.date_from = State.filters.date_from;
+    if (State.filters.date_to) payload.date_to = State.filters.date_to;
+    if (State.filters.sales_code) payload.sales_code = State.filters.sales_code;
+    const activityType = document.getElementById('log-activity-type').value;
+    if (activityType) payload.activity_type = activityType;
+
+    const result = await Api.call('readActivityLog', payload);
+
+    document.getElementById('log-loading').hidden = true;
+    LoadingIndicator.stop('log-loading');
+    document.getElementById('log-table-wrap').hidden = false;
+    State.logLoaded = true;
+
+    if (!result.success) {
+      Snackbar.show(result.message || 'Gagal memuat log aktivitas', 'error');
+      return;
+    }
+
+    State.logTotalCount = result.data.total_count;
+    this.render(result.data.activities || []);
+    this.renderPagination();
   },
 
   render(activities) {
-    const container = document.getElementById('timeline-list');
-    container.innerHTML = '';
+    const tbody = document.getElementById('log-table-body');
+    const emptyEl = document.getElementById('log-empty');
 
     if (activities.length === 0) {
-      container.innerHTML = '<p class="empty-state">Belum ada aktivitas tercatat untuk project ini.</p>';
+      tbody.innerHTML = '';
+      emptyEl.hidden = false;
       return;
     }
+    emptyEl.hidden = true;
 
-    activities.forEach((a) => {
-      const item = document.createElement('div');
-      item.className = 'timeline-item';
+    tbody.innerHTML = activities.map((a) =>
+      '<tr>' +
+      '<td>' + Utils.formatShortDate(a.timestamp) + '</td>' +
+      '<td>' + a.project_name + '</td>' +
+      '<td>' + a.sales_name + '</td>' +
+      '<td>' + a.activity_type + '</td>' +
+      '<td>' + (a.note || '-') + '</td>' +
+      '<td>' + (a.pipeline_stage || '-') + '</td>' +
+      '</tr>'
+    ).join('');
+  },
 
-      let photosHtml = '';
-      if (a.photos && a.photos.length > 0) {
-        photosHtml = a.photos.map((p) => '<img class="timeline-photo" src="' + p.url + '" alt="Foto kunjungan" loading="lazy" />').join('');
-      }
-
-      item.innerHTML =
-        '<p class="timeline-date">' + Utils.formatShortDate(a.Timestamp) + ' · ' + a.Activity_Type + '</p>' +
-        '<p class="timeline-note">' + a.Activity_Note + '</p>' +
-        '<p class="card-sub-light">Status saat itu: ' + a.Pipeline_Stage_At_This_Point +
-        (a.Next_Followup_Date ? ' · Follow up berikutnya: ' + Utils.formatShortDate(a.Next_Followup_Date) : '') +
-        '</p>' +
-        photosHtml;
-
-      container.appendChild(item);
-    });
+  renderPagination() {
+    const start = State.logTotalCount === 0 ? 0 : State.logOffset + 1;
+    const end = Math.min(State.logOffset + State.logLimit, State.logTotalCount);
+    document.getElementById('log-page-info').textContent = start + '–' + end + ' dari ' + State.logTotalCount;
+    document.getElementById('btn-log-prev').disabled = State.logOffset === 0;
+    document.getElementById('btn-log-next').disabled = (State.logOffset + State.logLimit) >= State.logTotalCount;
   }
 };
 
-/* ============================================================
-   10. SHEET: TAMBAH PROJECT
-   ============================================================ */
-const AddProjectSheet = {
+const ExportManager = {
   init() {
-    document.getElementById('fab-add-project').addEventListener('click', () => this.open());
-
-    // Event delegation: chip Jenis Produk sekarang dibuat dinamis dari
-    // sheet Lookup (bisa berubah-ubah), jadi listener dipasang di
-    // KONTAINER-nya, bukan per-chip — supaya tetap berfungsi walau
-    // chip-nya baru dirender belakangan/diperbarui.
-    document.getElementById('product-type-chips').addEventListener('click', (e) => {
-      const chip = e.target.closest('.chip');
-      if (!chip) return;
-      chip.classList.toggle('selected');
-      const value = chip.dataset.product;
-      if (chip.classList.contains('selected')) {
-        State.selectedProductTypes.push(value);
-      } else {
-        State.selectedProductTypes = State.selectedProductTypes.filter((v) => v !== value);
-      }
-    });
-
-    document.getElementById('form-add-project').addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.submit();
-    });
+    document.getElementById('btn-export-excel').addEventListener('click', () => this.exportExcel());
+    document.getElementById('btn-print-pdf').addEventListener('click', () => window.print());
   },
 
-  open() {
-    State.selectedProductTypes = [];
-    document.getElementById('form-add-project').reset();
-    document.querySelectorAll('#product-type-chips .chip').forEach((c) => c.classList.remove('selected'));
-
-    // Default Jenis Aktivitas ke "Visit" tiap kali form dibuka — kunjungan
-    // pertama ke project baru hampir selalu jenisnya Visit.
-    const activityTypeNew = document.getElementById('select-activity-type-new');
-    if ([...activityTypeNew.options].some((o) => o.value === 'Visit')) {
-      activityTypeNew.value = 'Visit';
-    }
-
-    SheetManager.open('sheet-add-project');
-  },
-
-  async submit() {
-    const name = document.getElementById('input-project-name').value.trim();
-    const address = document.getElementById('input-project-address').value.trim();
-
-    if (!name || !address) {
-      Snackbar.show('Nama project dan lokasi wajib diisi', 'error');
+  exportExcel() {
+    if (!State.overviewData) {
+      Snackbar.show('Data belum dimuat, coba lagi sebentar', 'error');
       return;
     }
-    if (State.selectedProductTypes.length === 0) {
-      Snackbar.show('Pilih minimal 1 jenis produk', 'error');
-      return;
-    }
+    const d = State.overviewData;
+    const wb = XLSX.utils.book_new();
 
-    const payload = {
-      project_id: IdGen.projectId(),
-      project_name: name,
-      location_address: address,
-      product_type: State.selectedProductTypes.join(', '),
-      project_category: document.getElementById('select-project-category').value,
-      construction_stage: document.getElementById('select-construction-stage').value,
-      estimated_value: document.getElementById('input-project-value').value || '',
-      lead_source: document.getElementById('select-lead-source').value || ''
-    };
+    const kpiSheet = XLSX.utils.aoa_to_sheet([
+      ['Ringkasan KPI'],
+      ['Total Project', d.kpi.total_projects],
+      ['Nilai Pipeline Aktif', d.kpi.total_pipeline_value],
+      ['Nilai Deal Won', d.kpi.won_value],
+      ['Win Rate (%)', d.kpi.win_rate_percent],
+      ['Total Aktivitas (Periode)', d.kpi.total_activities_period]
+    ]);
+    XLSX.utils.book_append_sheet(wb, kpiSheet, 'Ringkasan');
 
-    // Tambahkan langsung ke tampilan lokal (optimistic) — supaya project
-    // baru langsung terlihat di "Project Saya" walau server belum sempat
-    // mengonfirmasi. Ditandai _pendingSync sampai server benar-benar merespons.
-    State.projectsCache.unshift({
-      Project_ID: payload.project_id,
-      Project_Name: payload.project_name,
-      Location_Address: payload.location_address,
-      Product_Type: payload.product_type,
-      Pipeline_Stage: 'New Visit',
-      Estimated_Value: '',
-      Health_Status: 'Aktif',
-      Date_Created: new Date().toISOString(),
-      _pendingSync: true
-    });
+    const rankingRows = [['Sales', 'Total Aktivitas', 'Visit', 'Won', 'Lost', 'Nilai Won']];
+    d.sales_ranking.forEach((r) => rankingRows.push([r.sales_name, r.total_activities, r.visit_count, r.won_count, r.lost_count, r.won_value]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rankingRows), 'Ranking Sales');
 
-    SheetManager.close('sheet-add-project');
-    Router.refreshCurrentView();
+    const activityRows = [['Project', 'Sales', 'Jenis Aktivitas', 'Catatan', 'Tanggal']];
+    d.recent_activities.forEach((a) => activityRows.push([a.project_name, a.sales_name, a.activity_type, a.note, a.timestamp]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(activityRows), 'Aktivitas Terbaru');
 
-    Api.call('createProject', payload).then((result) => {
-      if (!result.success && !result.queued) {
-        Snackbar.show(result.message || 'Gagal menyimpan project ke server', 'error');
-      }
-      // Kalau berhasil ATAU sudah masuk antrian offline, tidak perlu
-      // notifikasi tambahan — sales sudah lihat project-nya sejak tadi.
-    });
-
-    // Aktivitas pertama (Jenis Aktivitas + Catatan) dikirim sebagai
-    // request TERPISAH, langsung dari form Tambah Project ini sendiri —
-    // tidak perlu lagi buka sheet Catat Aktivitas tambahan setelahnya.
-    const firstActivityType = document.getElementById('select-activity-type-new').value;
-    if (firstActivityType) {
-      Api.call('createActivity', {
-        activity_id: IdGen.activityId(),
-        project_id: payload.project_id,
-        activity_type: firstActivityType,
-        activity_note: document.getElementById('input-activity-note-new').value.trim() || 'Kunjungan pertama ke lokasi',
-        pipeline_stage: 'New Visit',
-        photo_ids: []
-      }).then((result) => {
-        if (!result.success && !result.queued) {
-          Snackbar.show('Gagal menyimpan aktivitas pertama: ' + (result.message || ''), 'error');
-        }
-      });
-    }
-
-    // Info kontak bersifat OPSIONAL — kalau salah satu field diisi,
-    // kirim sebagai request terpisah (tidak menghalangi alur utama project).
-    const contactName = document.getElementById('input-contact-name').value.trim();
-    const contactPhone = document.getElementById('input-contact-phone').value.trim();
-    const contactRole = document.getElementById('select-contact-role').value;
-
-    if (contactName && contactPhone && contactRole) {
-      Api.call('createContact', {
-        contact_id: IdGen.contactId(),
-        project_id: payload.project_id,
-        contact_name: contactName,
-        phone_number: contactPhone,
-        role: contactRole
-      }).then((result) => {
-        if (!result.success && !result.queued) {
-          Snackbar.show('Gagal menyimpan info kontak: ' + (result.message || ''), 'error');
-        }
-      });
-    } else if (contactName || contactPhone || contactRole) {
-      Snackbar.show('Info kontak tidak disimpan — Nama, Telepon, dan Role harus diisi semua kalau ingin mencatat kontak', 'info');
-    }
+    XLSX.writeFile(wb, 'SVS_Manager_Report_' + new Date().toISOString().slice(0, 10) + '.xlsx');
   }
 };
 
 /* ============================================================
-   11. SHEET: UPDATE PROGRESS
-   ============================================================ */
-const UpdateProgressSheet = {
-  init() {
-    // Jenis Aktivitas sekarang dropdown biasa — cukup dengar event 'change'
-    document.getElementById('select-activity-type').addEventListener('change', (e) => {
-      State.selectedActivityType = e.target.value;
-    });
-
-    document.getElementById('btn-take-photo').addEventListener('click', () => {
-      document.getElementById('input-photo').click();
-    });
-
-    document.getElementById('btn-pick-gallery').addEventListener('click', () => {
-      document.getElementById('input-gallery').click();
-    });
-
-    // Satu handler dipakai untuk KEDUA sumber foto (kamera & galeri) —
-    // mendukung lebih dari 1 file sekaligus (galeri bisa multi-select,
-    // kamera biasanya cuma 1 per pengambilan, tapi kode ini menangani
-    // keduanya dengan cara yang sama).
-    const handlePhotoFiles = async (e) => {
-      const files = Array.from(e.target.files || []);
-      for (const file of files) {
-        try {
-          const { base64, mimeType, previewUrl } = await Utils.compressAndReadImage(file);
-          State.pendingPhotos.push({ base64, mimeType, previewUrl });
-        } catch (err) {
-          Snackbar.show('Gagal memproses salah satu foto, dilewati', 'error');
-        }
-      }
-      this.renderPhotoThumbnails();
-      e.target.value = ''; // reset input supaya bisa pilih lagi dari sumber sama
-    };
-
-    document.getElementById('input-photo').addEventListener('change', handlePhotoFiles);
-    document.getElementById('input-gallery').addEventListener('change', handlePhotoFiles);
-
-    document.getElementById('select-pipeline-stage').addEventListener('change', (e) => {
-      const lostGroup = document.getElementById('lost-reason-group');
-      lostGroup.hidden = e.target.value !== 'Lost';
-    });
-
-    document.getElementById('lost-reason-chips').addEventListener('click', (e) => {
-      const chip = e.target.closest('.chip');
-      if (!chip) return;
-      document.querySelectorAll('#lost-reason-chips .chip').forEach((c) => c.classList.remove('selected'));
-      chip.classList.add('selected');
-      State.selectedLostReason = chip.dataset.lostReason;
-    });
-
-    document.querySelectorAll('#followup-quick-chips .chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('#followup-quick-chips .chip').forEach((c) => c.classList.remove('selected'));
-        chip.classList.add('selected');
-        const days = parseInt(chip.dataset.followupDays, 10);
-        const date = new Date();
-        date.setDate(date.getDate() + days);
-        const formatted = Utils.formatDateForInput(date);
-        document.getElementById('input-followup-date').value = formatted;
-        State.selectedFollowupDate = formatted;
-      });
-    });
-
-    document.getElementById('input-followup-date').addEventListener('change', (e) => {
-      State.selectedFollowupDate = e.target.value;
-      document.querySelectorAll('#followup-quick-chips .chip').forEach((c) => c.classList.remove('selected'));
-    });
-
-    document.getElementById('btn-add-activity-from-timeline').addEventListener('click', () => {
-      this.open(State.currentProjectId, State.currentProjectName, State.currentProjectStage);
-    });
-
-    document.getElementById('form-update-progress').addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.submit();
-    });
-  },
-
-  open(projectId, projectName, currentStage) {
-    State.currentProjectId = projectId;
-    State.currentProjectName = projectName;
-    State.selectedActivityType = null;
-    State.selectedLostReason = null;
-    State.pendingPhotos = [];
-
-    document.getElementById('form-update-progress').reset();
-    document.getElementById('update-progress-project-name').textContent = projectName;
-    this.renderPhotoThumbnails();
-    document.getElementById('lost-reason-group').hidden = true;
-    document.querySelectorAll('#lost-reason-chips .chip').forEach((c) => c.classList.remove('selected'));
-    document.querySelectorAll('#followup-quick-chips .chip').forEach((c) => c.classList.remove('selected'));
-
-    if (currentStage) {
-      document.getElementById('select-pipeline-stage').value = currentStage;
-    }
-
-    // Tampilkan form "Info Kontak" HANYA kalau project ini belum pernah
-    // punya kontak tersimpan — supaya tidak menanyakan hal yang sama
-    // berulang di setiap kunjungan. State.contactsSummary diisi dari
-    // Project List (readContactsSummary), jadi datanya sudah tersedia.
-    const hasContact = !!(State.contactsSummary && State.contactsSummary[projectId]);
-    document.getElementById('update-progress-contact-group').hidden = hasContact;
-
-    SheetManager.open('sheet-update-progress');
-  },
-
-  /** Menampilkan ulang seluruh thumbnail foto yang sudah diambil, dengan tombol hapus per foto */
-  renderPhotoThumbnails() {
-    const container = document.getElementById('photo-thumbnail-list');
-    container.innerHTML = '';
-
-    State.pendingPhotos.forEach((photo, index) => {
-      const item = document.createElement('div');
-      item.className = 'photo-thumbnail-item';
-      item.innerHTML =
-        '<img src="' + photo.previewUrl + '" alt="Foto kunjungan ' + (index + 1) + '" />' +
-        '<button type="button" class="photo-thumbnail-remove" data-remove-photo-index="' + index + '">✕</button>';
-      container.appendChild(item);
-    });
-
-    container.querySelectorAll('[data-remove-photo-index]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.dataset.removePhotoIndex, 10);
-        State.pendingPhotos.splice(idx, 1);
-        this.renderPhotoThumbnails();
-      });
-    });
-  },
-
-  async submit() {
-    const note = document.getElementById('input-activity-note').value.trim();
-    const stage = document.getElementById('select-pipeline-stage').value;
-    const followupDate = document.getElementById('input-followup-date').value || State.selectedFollowupDate;
-
-    if (!State.selectedActivityType) {
-      Snackbar.show('Pilih jenis aktivitas terlebih dahulu', 'error');
-      return;
-    }
-    if (!note) {
-      Snackbar.show('Catatan wajib diisi', 'error');
-      return;
-    }
-    if (!followupDate) {
-      Snackbar.show('Pilih tanggal follow up berikutnya', 'error');
-      return;
-    }
-    if (stage === 'Lost' && !State.selectedLostReason) {
-      Snackbar.show('Pilih alasan Lost terlebih dahulu', 'error');
-      return;
-    }
-    // Catatan: foto SENGAJA tidak divalidasi wajib di sini — foto bersifat
-    // opsional, boleh 0, 1, atau lebih dari 1.
-
-    const activityId = IdGen.activityId();
-    const photoAssignments = State.pendingPhotos.map((p) => ({
-      photoId: IdGen.photoId(),
-      base64: p.base64,
-      mimeType: p.mimeType
-    }));
-
-    const activityPayload = {
-      activity_id: activityId,
-      project_id: State.currentProjectId,
-      activity_type: State.selectedActivityType,
-      activity_note: note,
-      pipeline_stage: stage,
-      next_followup_date: followupDate,
-      lost_reason: stage === 'Lost' ? State.selectedLostReason : undefined,
-      photo_ids: photoAssignments.map((p) => p.photoId)
-    };
-
-    const estimatedValue = document.getElementById('input-estimated-value').value;
-
-    // Tutup sheet & beri feedback SEGERA — supaya sales tidak menunggu
-    // proses upload/jaringan selesai dulu baru bisa lanjut kerja.
-    // Proses upload+simpan aktivitas berjalan di background setelah ini.
-    SheetManager.close('sheet-update-progress');
-    Snackbar.showPersistent('Menyimpan...');
-
-    // Kirim update nilai project (kalau diisi) sebagai request TERPISAH,
-    // tidak menghalangi alur utama simpan aktivitas — sengaja tidak
-    // ditunggu (fire-and-forget), sama seperti pola kontak di Tambah Project.
-    if (estimatedValue) {
-      Api.call('updateProject', {
-        project_id: State.currentProjectId,
-        sales_code: SVS_CONFIG.SALES_CODE,
-        estimated_value: estimatedValue
-      }).then((result) => {
-        if (!result.success && !result.queued) {
-          Snackbar.show('Gagal menyimpan nilai project: ' + (result.message || ''), 'error');
-        }
-      });
-    }
-
-    // Info kontak susulan (cuma tampil kalau project belum punya kontak
-    // sama sekali) — kirim sebagai request terpisah juga, sama seperti
-    // pola nilai project di atas.
-    if (!document.getElementById('update-progress-contact-group').hidden) {
-      const contactName = document.getElementById('input-contact-name-update').value.trim();
-      const contactPhone = document.getElementById('input-contact-phone-update').value.trim();
-      const contactRole = document.getElementById('select-contact-role-update').value;
-
-      if (contactName && contactPhone && contactRole) {
-        Api.call('createContact', {
-          contact_id: IdGen.contactId(),
-          project_id: State.currentProjectId,
-          contact_name: contactName,
-          phone_number: contactPhone,
-          role: contactRole
-        }).then((result) => {
-          if (!result.success && !result.queued) {
-            Snackbar.show('Gagal menyimpan info kontak: ' + (result.message || ''), 'error');
-          }
-        });
-      } else if (contactName || contactPhone || contactRole) {
-        Snackbar.show('Info kontak tidak disimpan — Nama, Telepon, dan Role harus diisi semua', 'info');
-      }
-    }
-
-    try {
-      // Upload setiap foto satu per satu (kalau ada) — photo_id sudah
-      // ditentukan di atas, dikirim ke server supaya idempotent kalau
-      // request ini perlu diulang.
-      for (const photo of photoAssignments) {
-        await Api.rawCall('uploadPhoto', {
-          photo_id: photo.photoId,
-          project_id: State.currentProjectId,
-          file_base64: photo.base64,
-          mime_type: photo.mimeType
-        });
-      }
-
-      // Buat Activity — activity_id & photo_ids sudah ditentukan di atas
-      const activityResult = await Api.rawCall('createActivity', activityPayload);
-
-      if (!activityResult.success) {
-        Snackbar.show(activityResult.message || 'Gagal menyimpan aktivitas', 'error');
-        return;
-      }
-
-      Snackbar.show('Aktivitas tersimpan', 'success');
-      Router.refreshCurrentView();
-    } catch (networkError) {
-      // Jaringan gagal/lambat (timeout) di salah satu tahap manapun —
-      // simpan SATU paket gabungan (aktivitas + seluruh foto mentah,
-      // lengkap dengan ID yang sudah ditentukan di atas) ke antrian lokal,
-      // supaya saat sync belakangan tidak ada foto yang "nyasar" tanpa
-      // aktivitas, dan tidak ada data dobel walau diulang berkali-kali.
-      OfflineQueue.addActivityWithPhotos(activityPayload, photoAssignments);
-      Snackbar.show('Tersimpan lokal (' + (photoAssignments.length + 1) + ' data) — akan dikirim otomatis saat online', 'info');
-      Router.refreshCurrentView();
-    }
-  }
-};
-
-/* ============================================================
-   12. SHEET: FILTER
-   ============================================================ */
-const FilterSheet = {
-  init() {
-    document.getElementById('btn-open-filter').addEventListener('click', () => {
-      SheetManager.open('sheet-filter');
-    });
-
-    document.getElementById('filter-stage-chips').addEventListener('click', (e) => {
-      const chip = e.target.closest('.chip');
-      if (!chip) return;
-      document.querySelectorAll('#filter-stage-chips .chip').forEach((c) => c.classList.remove('selected'));
-      chip.classList.add('selected');
-      State.filterStage = chip.dataset.filterStage;
-    });
-
-    document.getElementById('filter-product-chips').addEventListener('click', (e) => {
-      const chip = e.target.closest('.chip');
-      if (!chip) return;
-      document.querySelectorAll('#filter-product-chips .chip').forEach((c) => c.classList.remove('selected'));
-      chip.classList.add('selected');
-      State.filterProduct = chip.dataset.filterProduct;
-    });
-
-    document.getElementById('btn-filter-reset').addEventListener('click', () => {
-      State.filterStage = '';
-      State.filterProduct = '';
-      document.querySelectorAll('#filter-stage-chips .chip, #filter-product-chips .chip').forEach((c, i) => {
-        c.classList.toggle('selected', c.dataset.filterStage === '' || c.dataset.filterProduct === '');
-      });
-    });
-
-    document.getElementById('btn-filter-apply').addEventListener('click', async () => {
-      SheetManager.close('sheet-filter');
-      await ProjectListView.load();
-    });
-
-    document.querySelectorAll('#quick-filter-chips .chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('#quick-filter-chips .chip').forEach((c) => c.classList.remove('selected'));
-        chip.classList.add('selected');
-        State.quickFilter = chip.dataset.quickfilter;
-        ProjectListView.applyQuickFilterAndSearch();
-      });
-    });
-
-    document.getElementById('input-search-project').addEventListener('input', (e) => {
-      State.searchKeyword = e.target.value;
-      ProjectListView.applyQuickFilterAndSearch();
-    });
-  }
-};
-
-/* ============================================================
-   SHEET MANAGER (generik, dipakai oleh ketiga bottom sheet)
-   ============================================================ */
-const SheetManager = {
-  init() {
-    document.querySelectorAll('[data-close-sheet]').forEach((btn) => {
-      btn.addEventListener('click', () => this.close(btn.dataset.closeSheet));
-    });
-    document.getElementById('sheet-overlay').addEventListener('click', () => this.closeAll());
-  },
-
-  open(sheetId) {
-    document.getElementById('sheet-overlay').hidden = false;
-    document.getElementById(sheetId).hidden = false;
-  },
-
-  close(sheetId) {
-    document.getElementById(sheetId).hidden = true;
-    document.getElementById('sheet-overlay').hidden = true;
-  },
-
-  closeAll() {
-    document.querySelectorAll('.bottom-sheet').forEach((sheet) => { sheet.hidden = true; });
-    document.getElementById('sheet-overlay').hidden = true;
-  }
-};
-
-/* ============================================================
-   13. NAVIGASI / ROUTER
-   ============================================================ */
-const Router = {
-  init() {
-    document.querySelectorAll('.bottom-nav-item').forEach((btn) => {
-      btn.addEventListener('click', () => this.goTo(btn.dataset.nav));
-    });
-
-    document.getElementById('btn-back').addEventListener('click', () => {
-      this.goTo('projects');
-    });
-  },
-
-  goTo(viewName) {
-    document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
-    document.getElementById('view-' + viewName).classList.add('active');
-    State.currentView = viewName;
-
-    const isTimeline = viewName === 'timeline';
-    document.getElementById('btn-back').hidden = !isTimeline;
-
-    const titles = {
-      dashboard: 'Halo, ' + SVS_CONFIG.SALES_NAME.split(' ')[0] + ' 👋',
-      projects: 'Project Saya',
-      timeline: State.currentProjectName || 'Detail Project'
-    };
-    document.getElementById('header-title').textContent = titles[viewName] || 'SVS';
-
-    document.querySelectorAll('.bottom-nav-item').forEach((btn) => {
-      btn.classList.toggle('active', btn.dataset.nav === viewName);
-    });
-
-    // FAB hanya relevan di Dashboard & Project List, bukan di Timeline
-    document.getElementById('fab-add-project').hidden = isTimeline;
-
-    this.refreshCurrentView();
-  },
-
-  refreshCurrentView() {
-    if (State.currentView === 'dashboard') DashboardView.load();
-    if (State.currentView === 'projects') ProjectListView.load();
-    if (State.currentView === 'timeline' && State.currentProjectId) TimelineView.load(State.currentProjectId);
-  }
-};
-
-/* ============================================================
-   14. INIT
+   10. INIT
    ============================================================ */
 function initApp() {
-  // Setiap modul di-init lewat wrapper aman ini — supaya kalau ada 1 modul
-  // gagal karena error tak terduga, modul-modul LAIN tetap ter-inisialisasi
-  // normal (sebelumnya: satu error di tengah bisa menghentikan seluruh sisa
-  // initApp(), membuat tombol-tombol setelahnya jadi tidak merespons sama
-  // sekali tanpa pesan error yang terlihat).
-  function safeInit(name, fn) {
-    try {
-      fn();
-    } catch (err) {
-      console.error('Gagal inisialisasi ' + name + ':', err);
-    }
-  }
+  Snackbar.init();
+  ThemeToggle.init();
+  TabNav.init();
+  ExportManager.init();
+  OverviewPage.initGranularityToggle();
+  ExplorerPage.init();
+  DetailModal.init();
+  LogPage.init();
 
-  // Render pilihan chip/dropdown (status, jenis produk, dll) SEGERA
-  // pakai data cache/default — supaya form langsung bisa dipakai tanpa
-  // menunggu server. Ini harus jalan SEBELUM init sheet lain, supaya
-  // dropdown/chip sudah terisi saat sales pertama kali buka form.
-  safeInit('LookupRenderer (awal)', () => LookupRenderer.renderAll(LookupCache.get()));
+  document.getElementById('header-subtitle').textContent =
+    'Halo, ' + MGR_CONFIG.MANAGER_NAME + ' — data real-time dari seluruh tim sales';
 
-  safeInit('Snackbar', () => Snackbar.init());
-  safeInit('ThemeToggle', () => ThemeToggle.init());
-  safeInit('Router', () => Router.init());
-  safeInit('SheetManager', () => SheetManager.init());
-  safeInit('DashboardView', () => DashboardView.init());
-  safeInit('AddProjectSheet', () => AddProjectSheet.init());
-  safeInit('UpdateProgressSheet', () => UpdateProgressSheet.init());
-  safeInit('FilterSheet', () => FilterSheet.init());
-
-  // Cek versi terbaru dari server di BACKGROUND (tidak memblokir apa pun).
-  // Kalau berhasil dan datanya berhasil dimuat, render ulang diam-diam —
-  // supaya perubahan di Google Sheets (tambah/kurang status, dll) langsung
-  // kepakai tanpa sales perlu tahu ada proses ini berjalan.
-  LookupCache.refresh().then((freshData) => {
-    if (freshData) LookupRenderer.renderAll(freshData);
-  });
-
-  document.getElementById('header-title').textContent =
-    'Halo, ' + SVS_CONFIG.SALES_NAME.split(' ')[0] + ' 👋';
-
-  // Tampilkan tanggal hari ini dalam format Indonesia di bawah sapaan
-  const hari = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', "Jum'at", 'Sabtu'];
-  const bulanPanjang = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-  const now = new Date();
-  let jam12 = now.getHours() % 12;
-  if (jam12 === 0) jam12 = 12;
-  const menit = String(now.getMinutes()).padStart(2, '0');
-  const ampm = now.getHours() < 12 ? 'AM' : 'PM';
-  document.getElementById('dashboard-date-subtitle').textContent =
-    hari[now.getDay()] + ', ' + now.getDate() + ' ' + bulanPanjang[now.getMonth()] + ' ' + now.getFullYear() +
-    ' • ' + jam12 + ':' + menit + ' ' + ampm;
-
-  // Sembunyikan logo header otomatis kalau file assets/icons/logo.png
-  // belum di-upload (mencegah tampilan "gambar rusak" muncul di header)
   const headerLogo = document.getElementById('header-logo');
   headerLogo.addEventListener('error', () => { headerLogo.style.display = 'none'; });
 
-  // Muat data awal Dashboard
-  DashboardView.load();
-
-  // Pantau status koneksi untuk banner offline + auto-sync antrian
-  const offlineBanner = document.getElementById('offline-banner');
-  function updateConnectionState() {
-    offlineBanner.hidden = navigator.onLine;
-    if (navigator.onLine) OfflineQueue.syncAll();
-  }
-  window.addEventListener('online', updateConnectionState);
-  window.addEventListener('offline', updateConnectionState);
-  updateConnectionState();
-
-  // Tombol manual "Sync Sekarang" — untuk kondisi sinyal naik-turun,
-  // di mana event 'online' browser belum tentu langsung terpicu tapi
-  // sales sudah tahu sinyalnya sedang bagus.
-  document.getElementById('pending-sync-banner').addEventListener('click', () => {
-    OfflineQueue.syncAll();
+  FilterBar.init().then(() => {
+    OverviewPage.load();
   });
-  OfflineQueue.updateBanner();
-
-  // Registrasi Service Worker untuk dukungan PWA & offline app-shell
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./service-worker.js').catch(() => {
-        // Kegagalan registrasi tidak menghentikan aplikasi — hanya berarti
-        // dukungan offline/PWA tidak aktif, aplikasi tetap bisa dipakai online.
-      });
-    });
-  }
 }
 
 document.addEventListener('DOMContentLoaded', initApp);

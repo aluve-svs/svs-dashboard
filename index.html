@@ -153,6 +153,18 @@
             </div>
           </div>
 
+          <!-- Row: Sumber Leads + Jenis Produk -->
+          <div class="chart-row two-col">
+            <div class="chart-card">
+              <h3 class="chart-title">Sumber Leads</h3>
+              <canvas id="chart-lead-source"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3 class="chart-title">Jenis Produk</h3>
+              <canvas id="chart-product-type"></canvas>
+            </div>
+          </div>
+
           <!-- Row: 3 widget lists -->
           <div class="widget-row">
             <div class="widget-card">
@@ -180,6 +192,12 @@
             <label for="explorer-search">Cari Nama Project / Lokasi</label>
             <input id="explorer-search" type="text" class="form-input" placeholder="Ketik untuk mencari..." />
           </div>
+          <div class="filter-field">
+            <label for="explorer-lead-source">Sumber Leads</label>
+            <select id="explorer-lead-source" class="form-select">
+              <option value="">Semua Sumber</option>
+            </select>
+          </div>
           <button id="btn-explorer-search" class="secondary-button ripple" type="button">Cari</button>
         </div>
 
@@ -193,6 +211,7 @@
                   <th>Nama Project</th>
                   <th>Sales</th>
                   <th>Stage</th>
+                  <th>Sumber Leads</th>
                   <th>Nilai</th>
                   <th>Lokasi</th>
                   <th>Update Terakhir</th>
@@ -219,6 +238,7 @@
               <span id="detail-project-stage" class="detail-badge">-</span>
               <span id="detail-project-value" class="detail-meta-text">-</span>
               <span id="detail-project-address" class="detail-meta-text">-</span>
+              <span id="detail-project-lead-source" class="detail-meta-text">-</span>
             </div>
 
             <div id="detail-contacts" class="contact-list"></div>

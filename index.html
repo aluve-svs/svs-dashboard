@@ -2,409 +2,359 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#1E3A8A" />
-  <meta name="description" content="Sales Visit System - pencatatan kunjungan dan follow up project aluminium" />
-
-  <title>SVS - Sales Visit System</title>
-
-  <link rel="manifest" href="./manifest.json" />
-  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="SVS" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SVS Manager Dashboard - Aluve</title>
+  <meta name="description" content="Dashboard Manager - ringkasan performa tim sales Aluve" />
 
   <link rel="stylesheet" href="./style.css" />
+
+  <!-- Chart.js dimuat dari CDN — dashboard ini didesain untuk laptop
+       kantor dengan koneksi internet stabil, jadi tidak perlu di-self-host
+       seperti font di app Sales (yang harus tetap jalan offline di lapangan). -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <!-- SheetJS untuk fitur Export Excel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
   <div id="app">
 
-    <!-- ===================== TOP APP BAR ===================== -->
-    <header class="app-header">
-      <button id="btn-back" class="icon-btn" type="button" aria-label="Kembali" hidden>
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-      </button>
-      <img id="header-logo" class="header-logo" src="./assets/icons/logo.png" alt="Aluve" />
-      <h1 id="header-title" class="header-title">Halo</h1>
-      <div class="header-actions">
-        <button id="btn-theme-toggle" class="theme-switch" type="button" aria-label="Ganti tema" role="switch">
+    <!-- ===================== HEADER ===================== -->
+    <header class="mgr-header">
+      <div class="mgr-header-left">
+        <img id="header-logo" class="header-logo" src="./assets/icons/logo.png" alt="Aluve" />
+        <div>
+          <h1 class="mgr-title">Manager Dashboard</h1>
+          <p id="header-subtitle" class="mgr-subtitle">-</p>
+        </div>
+      </div>
+      <div class="mgr-header-right">
+        <button id="btn-export-excel" class="secondary-button ripple" type="button">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          Export Excel
+        </button>
+        <button id="btn-print-pdf" class="secondary-button ripple" type="button">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Print PDF
+        </button>
+        <button id="btn-theme-toggle" class="theme-switch" type="button" aria-label="Ganti tema">
           <svg class="theme-switch-icon theme-switch-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
           <svg class="theme-switch-icon theme-switch-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <span class="theme-switch-thumb"></span>
         </button>
-        <button id="btn-notification" class="icon-btn" type="button" aria-label="Notifikasi">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          <span id="badge-notification-count" class="badge" hidden>0</span>
-        </button>
       </div>
     </header>
 
-    <!-- ===================== OFFLINE BANNER ===================== -->
-    <div id="offline-banner" class="offline-banner" hidden>
-      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
-      Tidak ada koneksi internet — data akan tersimpan lokal dan otomatis dikirim saat online
+    <!-- ===================== TAB NAVIGATION ===================== -->
+    <nav class="mgr-tabs no-print">
+      <button class="mgr-tab active" type="button" data-tab="overview">Overview</button>
+      <button class="mgr-tab" type="button" data-tab="explorer">Project Explorer</button>
+      <button class="mgr-tab" type="button" data-tab="performance">Performa Sales</button>
+      <button class="mgr-tab" type="button" data-tab="log">Log Aktivitas</button>
+    </nav>
+
+    <!-- ===================== FILTER BAR ===================== -->
+    <div class="filter-bar no-print">
+      <div class="filter-field">
+        <label for="filter-date-from">Dari Tanggal</label>
+        <input id="filter-date-from" type="date" class="form-input" />
+      </div>
+      <div class="filter-field">
+        <label for="filter-date-to">Sampai Tanggal</label>
+        <input id="filter-date-to" type="date" class="form-input" />
+      </div>
+      <div class="filter-field">
+        <label for="filter-sales">Sales</label>
+        <select id="filter-sales" class="form-select">
+          <option value="">Semua Sales</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="filter-stage">Status Project</label>
+        <select id="filter-stage" class="form-select">
+          <option value="">Semua Stage</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="filter-lead-source">Sumber Leads</label>
+        <select id="filter-lead-source" class="form-select">
+          <option value="">Semua Sumber</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="filter-product">Jenis Produk</label>
+        <select id="filter-product" class="form-select">
+          <option value="">Semua Produk</option>
+        </select>
+      </div>
+      <button id="btn-apply-filter" class="primary-button ripple" type="button">Terapkan Filter</button>
+      <button id="btn-reset-filter" class="secondary-button ripple" type="button">Reset</button>
     </div>
 
-    <!-- ===================== PENDING SYNC BANNER ===================== -->
-    <button id="pending-sync-banner" class="pending-sync-banner" type="button" hidden>
-      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16l-4-4-4 4"/><path d="M12 12v9"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-      <span id="pending-sync-count">0</span> data menunggu dikirim — Tap untuk sync sekarang
-    </button>
+    <!-- ===================== MAIN CONTENT ===================== -->
+    <main id="main-content">
 
-    <!-- ===================== MAIN CONTENT AREA ===================== -->
-    <main id="view-container" class="view-container">
+      <!-- ---------- TAB: OVERVIEW ---------- -->
+      <section id="tab-overview" class="mgr-tab-content active">
 
-      <!-- ---------- VIEW: DASHBOARD ---------- -->
-      <section id="view-dashboard" class="view active" data-view="dashboard">
+        <div id="overview-loading" class="loading-container"><div class="loading-spinner"></div><p class="loading-container-text" data-base-text="Memuat data">Memuat data</p></div>
 
-        <p id="dashboard-date-subtitle" class="greeting-subtitle"></p>
+        <div id="overview-content" hidden>
 
-        <div class="section-block">
-          <h2 class="section-title">
-            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
-            Perlu Follow Up Hari Ini
-          </h2>
-          <div id="followup-list" class="card-list"></div>
-          <div id="followup-empty" class="empty-state" hidden>
-            <span class="empty-state-badge">
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-              <span class="empty-state-badge-check">
-                <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              </span>
-            </span>
-            <p class="empty-state-heading">Tidak ada follow up jatuh tempo.</p>
-            <p class="empty-state-subtext">Sangat baik! Semua jadwal hari ini sudah tuntas.</p>
+          <p id="overview-updated-at" class="detail-meta-text" style="margin-bottom: var(--space-sm);"></p>
+
+          <!-- KPI Cards -->
+          <div class="kpi-grid">
+            <div class="kpi-card glow-primary">
+              <span class="kpi-label">Total Project</span>
+              <span id="kpi-total-projects" class="kpi-value">0</span>
+            </div>
+            <div class="kpi-card glow-success">
+              <span class="kpi-label">Nilai Pipeline Aktif</span>
+              <span id="kpi-pipeline-value" class="kpi-value">Rp 0</span>
+            </div>
+            <div class="kpi-card glow-warning">
+              <span class="kpi-label">Nilai Deal Won</span>
+              <span id="kpi-won-value" class="kpi-value">Rp 0</span>
+            </div>
+            <div class="kpi-card glow-primary">
+              <span class="kpi-label">Win Rate</span>
+              <span id="kpi-win-rate" class="kpi-value">0%</span>
+            </div>
+            <div class="kpi-card glow-danger">
+              <span class="kpi-label">Total Aktivitas (Periode)</span>
+              <span id="kpi-total-activities" class="kpi-value">0</span>
+            </div>
           </div>
+
+          <!-- Row: Funnel Pipeline (full width — perlu banyak ruang supaya semua
+               stage dari sheet Lookup muat, termasuk yang masih 0 project) -->
+          <div class="chart-row">
+            <div class="chart-card full-width">
+              <h3 class="chart-title">Funnel Pipeline</h3>
+              <canvas id="chart-funnel"></canvas>
+            </div>
+          </div>
+
+          <!-- Row: Tren Aktivitas + Status Project berdampingan -->
+          <div class="chart-row two-col">
+            <div class="chart-card">
+              <div class="chart-card-header">
+                <h3 class="chart-title">Tren Aktivitas</h3>
+                <div id="trend-granularity-chips" class="chip-group">
+                  <button class="chip selected" type="button" data-granularity="daily">Harian</button>
+                  <button class="chip" type="button" data-granularity="weekly">Mingguan</button>
+                  <button class="chip" type="button" data-granularity="monthly">Bulanan</button>
+                </div>
+              </div>
+              <canvas id="chart-trend"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3 class="chart-title">Status Project</h3>
+              <canvas id="chart-status-pie"></canvas>
+            </div>
+          </div>
+
+          <!-- Row: Sales Ranking + Lost Reasons -->
+          <div class="chart-row two-col">
+            <div class="chart-card">
+              <h3 class="chart-title">Ranking Sales (Aktivitas)</h3>
+              <canvas id="chart-sales-ranking"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3 class="chart-title">Alasan Lost</h3>
+              <canvas id="chart-lost-reasons"></canvas>
+            </div>
+          </div>
+
+          <!-- Row: Sumber Leads + Jenis Produk -->
+          <div class="chart-row two-col">
+            <div class="chart-card">
+              <h3 class="chart-title">Sumber Leads</h3>
+              <canvas id="chart-lead-source"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3 class="chart-title">Jenis Produk</h3>
+              <canvas id="chart-product-type"></canvas>
+            </div>
+          </div>
+
+          <!-- Row: 3 widget lists -->
+          <div class="widget-row">
+            <div class="widget-card">
+              <h3 class="chart-title">⚠ Project Perlu Perhatian</h3>
+              <div id="widget-stale-list" class="widget-list"></div>
+            </div>
+            <div class="widget-card">
+              <h3 class="chart-title">Follow Up Hari Ini</h3>
+              <div id="widget-followup-list" class="widget-list"></div>
+            </div>
+            <div class="widget-card">
+              <h3 class="chart-title">Aktivitas Terbaru</h3>
+              <div id="widget-recent-list" class="widget-list"></div>
+            </div>
+          </div>
+
         </div>
-
-        <div class="section-block">
-          <h2 class="section-title">
-            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-            Ringkasan Saya
-          </h2>
-          <div id="summary-period-chips" class="chip-group">
-            <button class="chip selected" type="button" data-period="today">Hari Ini</button>
-            <button class="chip" type="button" data-period="week">Minggu Ini</button>
-            <button class="chip" type="button" data-period="month">Bulan Ini</button>
-          </div>
-          <div class="summary-grid">
-            <div class="summary-item glow-primary" data-summary-type="visit" role="button" tabindex="0">
-              <span id="summary-visit" class="summary-number">0</span>
-              <span class="summary-label">Kunjungan</span>
-            </div>
-            <div class="summary-item glow-success" data-summary-type="won" role="button" tabindex="0">
-              <span id="summary-won" class="summary-number">0</span>
-              <span class="summary-label">Deal Ditutup</span>
-            </div>
-            <div class="summary-item glow-danger" data-summary-type="lost" role="button" tabindex="0">
-              <span id="summary-lost" class="summary-number">0</span>
-              <span class="summary-label">Deal Hilang</span>
-            </div>
-          </div>
-        </div>
-
       </section>
 
-      <!-- ---------- VIEW: PROJECT LIST ---------- -->
-      <section id="view-projects" class="view" data-view="projects">
+      <!-- ---------- TAB: PROJECT EXPLORER (placeholder, dibangun tahap berikutnya) ---------- -->
+      <section id="tab-explorer" class="mgr-tab-content">
 
-        <div class="search-bar">
-          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input id="input-search-project" type="text" placeholder="Cari nama project atau lokasi..." />
-          <button id="btn-open-filter" class="icon-btn" type="button" aria-label="Filter">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <line x1="3" y1="6" x2="21" y2="6"/>
-              <circle cx="15" cy="6" r="2.2" fill="currentColor" stroke="none"/>
-              <line x1="3" y1="12" x2="21" y2="12"/>
-              <circle cx="9" cy="12" r="2.2" fill="currentColor" stroke="none"/>
-              <line x1="3" y1="18" x2="21" y2="18"/>
-              <circle cx="13" cy="18" r="2.2" fill="currentColor" stroke="none"/>
-            </svg>
-          </button>
+        <div class="explorer-toolbar no-print">
+          <div class="filter-field" style="min-width:280px;">
+            <label for="explorer-search">Cari Nama Project / Lokasi</label>
+            <input id="explorer-search" type="text" class="form-input" placeholder="Ketik untuk mencari..." />
+          </div>
+          <div class="filter-field">
+            <label for="explorer-lead-source">Sumber Leads</label>
+            <select id="explorer-lead-source" class="form-select">
+              <option value="">Semua Sumber</option>
+            </select>
+          </div>
+          <button id="btn-explorer-search" class="secondary-button ripple" type="button">Cari</button>
         </div>
 
-        <div id="quick-filter-chips" class="chip-group">
-          <button class="chip selected" type="button" data-quickfilter="Semua">Semua</button>
-          <button class="chip" type="button" data-quickfilter="Aktif">Aktif</button>
-          <button class="chip" type="button" data-quickfilter="Won">Won</button>
-          <button class="chip" type="button" data-quickfilter="Lost">Lost</button>
+        <div id="explorer-loading" class="loading-container"><div class="loading-spinner"></div><p class="loading-container-text" data-base-text="Memuat data">Memuat data</p></div>
+
+        <div id="explorer-table-wrap" hidden>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Nama Project</th>
+                  <th>Sales</th>
+                  <th>Stage</th>
+                  <th>Sumber Leads</th>
+                  <th>Nilai</th>
+                  <th>Lokasi</th>
+                  <th>Update Terakhir</th>
+                </tr>
+              </thead>
+              <tbody id="explorer-table-body"></tbody>
+            </table>
+          </div>
+          <p id="explorer-empty" class="empty-state" hidden>Tidak ada project yang cocok.</p>
         </div>
-
-        <div id="project-list" class="card-list"></div>
-        <p id="project-list-empty" class="empty-state" hidden>
-          <span class="empty-state-badge">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
-          </span>
-          Belum ada project. Tap tombol + untuk menambahkan.
-        </p>
-
       </section>
 
-      <!-- ---------- VIEW: ACTIVITY TIMELINE (Detail Project) ---------- -->
-      <section id="view-timeline" class="view" data-view="timeline">
+      <!-- ---------- MODAL: DETAIL PROJECT ---------- -->
+      <div id="project-detail-overlay" class="modal-overlay no-print" hidden>
+        <div class="modal-panel">
+          <div class="modal-header">
+            <h3 id="detail-project-name">-</h3>
+            <button id="btn-close-detail" class="icon-btn" type="button" aria-label="Tutup">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="detail-meta-row">
+              <span id="detail-project-stage" class="detail-badge">-</span>
+              <span id="detail-project-value" class="detail-meta-text">-</span>
+              <span id="detail-project-address" class="detail-meta-text">-</span>
+              <span id="detail-project-lead-source" class="detail-meta-text">-</span>
+            </div>
 
-        <div class="timeline-header card">
-          <h3 id="timeline-project-name" class="card-title">-</h3>
-          <p id="timeline-project-meta" class="card-sub">-</p>
-          <p id="timeline-project-address" class="card-sub-light">-</p>
-          <div id="timeline-project-contacts" class="contact-list"></div>
-          <p id="timeline-project-detail" class="card-sub-light"></p>
+            <div id="detail-contacts" class="contact-list"></div>
+
+            <h4 class="chart-title">Foto Project</h4>
+            <div id="detail-photo-grid" class="photo-grid"></div>
+
+            <h4 class="chart-title">Riwayat Aktivitas</h4>
+            <div id="detail-timeline" class="timeline"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- LIGHTBOX FOTO ---------- -->
+      <div id="photo-lightbox" class="lightbox-overlay no-print" hidden>
+        <button id="btn-close-lightbox" class="lightbox-close" type="button" aria-label="Tutup">✕</button>
+        <img id="lightbox-image" src="" alt="Foto diperbesar" />
+      </div>
+
+      <!-- ---------- TAB: PERFORMA SALES (placeholder) ---------- -->
+      <section id="tab-performance" class="mgr-tab-content">
+
+        <div id="performance-loading" class="loading-container"><div class="loading-spinner"></div><p class="loading-container-text" data-base-text="Memuat data">Memuat data</p></div>
+
+        <div id="performance-content" hidden>
+          <div class="chart-card" style="margin-bottom: var(--space-lg);">
+            <h3 class="chart-title">Perbandingan Sales</h3>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Sales</th>
+                    <th>Total Aktivitas</th>
+                    <th>Visit</th>
+                    <th>Won</th>
+                    <th>Lost</th>
+                    <th>Nilai Won</th>
+                    <th>Project Aktif</th>
+                  </tr>
+                </thead>
+                <tbody id="performance-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="performance-detail" hidden>
+            <h3 class="chart-title" id="performance-detail-title">Detail Sales</h3>
+            <div class="kpi-grid" id="performance-detail-kpi" style="grid-template-columns: repeat(4, 1fr);"></div>
+            <div class="chart-card full-width">
+              <h3 class="chart-title">Tren Aktivitas Pribadi</h3>
+              <canvas id="chart-performance-trend"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- TAB: LOG AKTIVITAS (placeholder) ---------- -->
+      <section id="tab-log" class="mgr-tab-content">
+
+        <div class="explorer-toolbar no-print">
+          <div class="filter-field">
+            <label for="log-activity-type">Jenis Aktivitas</label>
+            <select id="log-activity-type" class="form-select">
+              <option value="">Semua Jenis</option>
+              <option value="Visit">Visit</option>
+              <option value="Follow Up">Follow Up</option>
+              <option value="Kirim Penawaran">Kirim Penawaran</option>
+              <option value="Deal Update">Deal Update</option>
+            </select>
+          </div>
+          <button id="btn-log-filter" class="secondary-button ripple" type="button">Terapkan</button>
         </div>
 
-        <div id="timeline-list" class="timeline"></div>
+        <div id="log-loading" class="loading-container"><div class="loading-spinner"></div><p class="loading-container-text" data-base-text="Memuat data">Memuat data</p></div>
 
-        <button id="btn-add-activity-from-timeline" class="primary-button ripple full-width sticky-bottom" type="button">
-          + Catat Aktivitas Baru
-        </button>
+        <div id="log-table-wrap" hidden>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Tanggal</th>
+                  <th>Project</th>
+                  <th>Sales</th>
+                  <th>Jenis</th>
+                  <th>Catatan</th>
+                  <th>Status Saat Itu</th>
+                </tr>
+              </thead>
+              <tbody id="log-table-body"></tbody>
+            </table>
+          </div>
+          <p id="log-empty" class="empty-state" hidden>Tidak ada aktivitas yang cocok dengan filter.</p>
 
+          <div class="log-pagination no-print">
+            <button id="btn-log-prev" class="secondary-button ripple" type="button">← Sebelumnya</button>
+            <span id="log-page-info">-</span>
+            <button id="btn-log-next" class="secondary-button ripple" type="button">Berikutnya →</button>
+          </div>
+        </div>
       </section>
 
     </main>
-
-    <!-- ===================== FAB ===================== -->
-    <button id="fab-add-project" class="fab ripple" type="button" aria-label="Tambah Project">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-    </button>
-
-    <!-- ===================== BOTTOM NAVIGATION ===================== -->
-    <nav class="bottom-nav">
-      <button class="bottom-nav-item active" type="button" data-nav="dashboard">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-        <span class="nav-label">Home</span>
-      </button>
-      <button class="bottom-nav-item" type="button" data-nav="projects">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-        <span class="nav-label">Project</span>
-      </button>
-    </nav>
-
-    <!-- ===================== OVERLAY ===================== -->
-    <div id="sheet-overlay" class="sheet-overlay" hidden></div>
-
-    <!-- ===================== BOTTOM SHEET: TAMBAH PROJECT ===================== -->
-    <div id="sheet-add-project" class="bottom-sheet" hidden>
-      <div class="sheet-handle"></div>
-      <div class="sheet-header">
-        <h3>Tambah Project Baru</h3>
-        <button class="icon-btn sheet-close" type="button" data-close-sheet="sheet-add-project" aria-label="Tutup">
-          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-
-      <form id="form-add-project" class="sheet-body">
-        <div class="form-group">
-          <label class="form-label" for="input-project-name">Nama Project *</label>
-          <input id="input-project-name" class="form-input" type="text" required />
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="input-project-address">Lokasi *</label>
-          <input id="input-project-address" class="form-input" type="text" placeholder="Contoh: Jl. Raya Soreang No. 45, Bandung" required />
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Jenis Produk * (pilih min. 1)</label>
-          <div id="product-type-chips" class="chip-group wrap"></div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="select-project-category">Jenis Project</label>
-          <select id="select-project-category" class="form-select">
-            <option value="">Pilih (opsional)</option>
-            <option value="Rumah">Rumah</option>
-            <option value="Ruko">Ruko</option>
-            <option value="Apartemen">Apartemen</option>
-            <option value="Gedung Komersial">Gedung Komersial</option>
-            <option value="Pabrik">Pabrik</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="select-construction-stage">Tahap Konstruksi</label>
-          <select id="select-construction-stage" class="form-select">
-            <option value="">Pilih (opsional)</option>
-            <option value="Pondasi">Pondasi</option>
-            <option value="Dinding">Dinding</option>
-            <option value="Finishing">Finishing</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="input-project-value">Estimasi Nilai Project (opsional)</label>
-          <input id="input-project-value" class="form-input" type="number" inputmode="numeric" placeholder="Contoh: 25000000" min="0" />
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="select-lead-source">Sumber Leads (opsional)</label>
-          <select id="select-lead-source" class="form-select">
-            <option value="">Sumber Leads (opsional)</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="select-activity-type-new">Jenis Aktivitas (Kunjungan Pertama) *</label>
-          <select id="select-activity-type-new" class="form-select" required></select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="input-activity-note-new">Catatan Kunjungan (opsional)</label>
-          <textarea id="input-activity-note-new" class="form-textarea" rows="2" placeholder="Contoh: Survei lokasi & perkenalan produk"></textarea>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Info Kontak di Lokasi (opsional)</label>
-          <input id="input-contact-name" class="form-input" type="text" placeholder="Nama kontak" />
-        </div>
-        <div class="form-group">
-          <input id="input-contact-phone" class="form-input" type="tel" placeholder="No. Telepon/WA" />
-        </div>
-        <div class="form-group">
-          <select id="select-contact-role" class="form-select">
-            <option value="">Role Kontak (opsional)</option>
-          </select>
-        </div>
-
-        <button type="submit" class="primary-button ripple full-width">SIMPAN PROJECT</button>
-      </form>
-    </div>
-
-    <!-- ===================== BOTTOM SHEET: UPDATE PROGRESS ===================== -->
-    <div id="sheet-update-progress" class="bottom-sheet" hidden>
-      <div class="sheet-handle"></div>
-      <div class="sheet-header">
-        <div><h3 id="update-progress-project-name">Update Aktivitas</h3></div>
-        <button class="icon-btn sheet-close" type="button" data-close-sheet="sheet-update-progress" aria-label="Tutup">
-          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-
-      <form id="form-update-progress" class="sheet-body">
-
-        <div class="form-group">
-          <label class="form-label" for="select-activity-type">Jenis Aktivitas *</label>
-          <select id="select-activity-type" class="form-select" required></select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Foto Kunjungan (opsional, boleh lebih dari 1)</label>
-          <input id="input-photo" type="file" accept="image/*" capture="environment" hidden />
-          <input id="input-gallery" type="file" accept="image/*" multiple hidden />
-          <div class="photo-source-buttons">
-            <button id="btn-take-photo" class="secondary-button ripple" type="button">
-              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              Ambil Foto
-            </button>
-            <button id="btn-pick-gallery" class="secondary-button ripple" type="button">
-              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-              Galeri
-            </button>
-          </div>
-          <div id="photo-thumbnail-list" class="photo-thumbnail-list"></div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="input-activity-note">Catatan *</label>
-          <textarea id="input-activity-note" class="form-textarea" rows="3" required></textarea>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="select-pipeline-stage">Status Project Saat Ini *</label>
-          <select id="select-pipeline-stage" class="form-select" required></select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="input-estimated-value">Estimasi Nilai Project (opsional)</label>
-          <input id="input-estimated-value" class="form-input" type="number" inputmode="numeric" placeholder="Contoh: 25000000" min="0" />
-          <p class="form-hint">Isi kalau sudah tahu perkiraan nilainya. Boleh dikosongkan dan diisi/diperbarui belakangan.</p>
-        </div>
-
-        <div id="lost-reason-group" class="form-group" hidden>
-          <label class="form-label">
-            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Alasan Lost *
-          </label>
-          <div id="lost-reason-chips" class="chip-group wrap"></div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Follow Up Berikutnya *</label>
-          <div id="followup-quick-chips" class="chip-group wrap">
-            <button class="chip" type="button" data-followup-days="1">Besok</button>
-            <button class="chip" type="button" data-followup-days="3">3 Hari</button>
-            <button class="chip" type="button" data-followup-days="7">1 Minggu</button>
-          </div>
-          <input id="input-followup-date" class="form-input" type="date" />
-        </div>
-
-        <!-- Hanya ditampilkan kalau project ini BELUM punya kontak
-             tersimpan sama sekali — supaya tidak menanyakan hal yang
-             sama berulang-ulang di setiap kunjungan berikutnya. -->
-        <div id="update-progress-contact-group" hidden>
-          <div class="form-group">
-            <label class="form-label">Info Kontak di Lokasi (opsional, belum pernah diisi)</label>
-            <input id="input-contact-name-update" class="form-input" type="text" placeholder="Nama kontak" />
-          </div>
-          <div class="form-group">
-            <input id="input-contact-phone-update" class="form-input" type="tel" placeholder="No. Telepon/WA" />
-          </div>
-          <div class="form-group">
-            <select id="select-contact-role-update" class="form-select">
-              <option value="">Role Kontak (opsional)</option>
-            </select>
-          </div>
-        </div>
-
-        <button type="submit" class="primary-button ripple full-width">SIMPAN</button>
-      </form>
-    </div>
-
-    <!-- ===================== BOTTOM SHEET: FILTER ===================== -->
-    <div id="sheet-filter" class="bottom-sheet" hidden>
-      <div class="sheet-handle"></div>
-      <div class="sheet-header">
-        <h3>Filter</h3>
-        <button class="icon-btn sheet-close" type="button" data-close-sheet="sheet-filter" aria-label="Tutup">
-          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-
-      <div class="sheet-body">
-        <div class="form-group">
-          <label class="form-label">Pipeline Stage</label>
-          <div id="filter-stage-chips" class="chip-group wrap">
-            <button class="chip selected" type="button" data-filter-stage="">Semua</button>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Jenis Produk</label>
-          <div id="filter-product-chips" class="chip-group wrap">
-            <button class="chip selected" type="button" data-filter-product="">Semua</button>
-          </div>
-        </div>
-
-        <div class="sheet-action-row">
-          <button id="btn-filter-reset" class="secondary-button ripple" type="button">RESET</button>
-          <button id="btn-filter-apply" class="primary-button ripple" type="button">TERAPKAN</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ===================== BOTTOM SHEET: DETAIL RINGKASAN ===================== -->
-    <div id="sheet-summary-detail" class="bottom-sheet" hidden>
-      <div class="sheet-handle"></div>
-      <div class="sheet-header">
-        <h3 id="summary-detail-title">Detail</h3>
-        <button class="icon-btn sheet-close" type="button" data-close-sheet="sheet-summary-detail" aria-label="Tutup">
-          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="sheet-body">
-        <div id="summary-detail-list" class="card-list"></div>
-      </div>
-    </div>
 
     <!-- ===================== SNACKBAR ===================== -->
     <div id="snackbar" class="snackbar" role="status" aria-live="polite"></div>
